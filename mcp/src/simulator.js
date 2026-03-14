@@ -31,6 +31,35 @@ function asFiniteNumber(value, fallback) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function asNonNegativeNumber(value, fallback) {
+  return Math.max(0, asFiniteNumber(value, fallback));
+}
+
+function signWithDeadZone(value, epsilon = 1e-9) {
+  if (value > epsilon) {
+    return 1;
+  }
+  if (value < -epsilon) {
+    return -1;
+  }
+  return 0;
+}
+
+function kineticFrictionForce({ mu, normalForce, velocity, driveForce }) {
+  const coefficient = asNonNegativeNumber(mu, 0);
+  const normal = Math.max(0, normalForce);
+  if (coefficient <= 0 || normal <= 1e-12) {
+    return 0;
+  }
+
+  const direction = signWithDeadZone(velocity) || signWithDeadZone(driveForce);
+  if (!direction) {
+    return 0;
+  }
+
+  return -direction * coefficient * normal;
+}
+
 function createRunId(prefix = "moving_rod") {
   return `${prefix}_${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}_${crypto.randomBytes(4).toString("hex")}`;
 }
@@ -191,7 +220,8 @@ function normalizeSingleScene(scene, issues) {
     rod: {
       length: asPositiveNumber(body.length, 1),
       mass: asPositiveNumber(body.mass, 1),
-      internal_resistance: Math.max(0, asFiniteNumber(body.internal_resistance ?? body.r, 0.5))
+      internal_resistance: Math.max(0, asFiniteNumber(body.internal_resistance ?? body.r, 0.5)),
+      kinetic_friction: asNonNegativeNumber(body.kinetic_friction ?? body.mu_k ?? body.mu, 0)
     },
     circuit: {
       external_resistance: Math.max(0, asFiniteNumber(circuit.external_resistance ?? circuit.R, 2)),
@@ -235,6 +265,7 @@ function normalizeDoubleScene(scene, issues) {
       length: asPositiveNumber(rod1.length ?? rod1.L, 1),
       mass: asPositiveNumber(rod1.mass ?? rod1.m, 1),
       resistance: Math.max(0, asFiniteNumber(rod1.resistance ?? rod1.R, 1)),
+      kinetic_friction: asNonNegativeNumber(rod1.kinetic_friction ?? rod1.mu_k ?? rod1.mu, 0),
       v0: asFiniteNumber(rod1.v0 ?? rod1.v, 0),
       external_force: asFiniteNumber(rod1.external_force ?? rod1.F, 0)
     },
@@ -242,6 +273,7 @@ function normalizeDoubleScene(scene, issues) {
       length: asPositiveNumber(rod2.length ?? rod2.L, 1),
       mass: asPositiveNumber(rod2.mass ?? rod2.m, 1),
       resistance: Math.max(0, asFiniteNumber(rod2.resistance ?? rod2.R, 1)),
+      kinetic_friction: asNonNegativeNumber(rod2.kinetic_friction ?? rod2.mu_k ?? rod2.mu, 0),
       v0: asFiniteNumber(rod2.v0 ?? rod2.v, 0),
       external_force: asFiniteNumber(rod2.external_force ?? rod2.F, 0)
     }
@@ -253,7 +285,7 @@ function normalizeDoubleScene(scene, issues) {
 function simulateSingle(scene, solveOptions) {
   const Bn = scene.environment.B * Math.cos(scene.environment.phi_rad);
   const totalR = scene.circuit.external_resistance + scene.rod.internal_resistance;
-  const history = makeSeriesStore(["t", "x", "v", "a", "I", "E_induced", "F_amp", "segment_index", "theta_deg"]);
+  const history = makeSeriesStore(["t", "x", "v", "a", "I", "E_induced", "F_amp", "F_friction", "segment_index", "theta_deg"]);
   const events = [];
   let t = 0;
   let x = scene.dynamics.x0;
@@ -262,6 +294,7 @@ function simulateSingle(scene, solveOptions) {
   let current = 0;
   let inducedEmf = 0;
   let ampForce = 0;
+  let frictionForce = 0;
   let segmentIndex = getTrackSegmentIndex(x, scene.track);
 
   pushEvent(events, "simulation_start", { t, x, v, segment_index: segmentIndex });
@@ -282,7 +315,16 @@ function simulateSingle(scene, solveOptions) {
     inducedEmf = Bn * scene.rod.length * v;
     current = totalR > 1e-9 ? (inducedEmf - scene.circuit.source_voltage) / totalR : 0;
     ampForce = Bn * current * scene.rod.length;
-    a = (scene.dynamics.external_force - ampForce - scene.rod.mass * scene.environment.g * Math.sin(theta)) / scene.rod.mass;
+    const gravityAlongTrack = scene.rod.mass * scene.environment.g * Math.sin(theta);
+    const normalForce = scene.rod.mass * scene.environment.g * Math.cos(theta);
+    const driveForce = scene.dynamics.external_force - ampForce - gravityAlongTrack;
+    frictionForce = kineticFrictionForce({
+      mu: scene.rod.kinetic_friction,
+      normalForce,
+      velocity: v,
+      driveForce
+    });
+    a = (driveForce + frictionForce) / scene.rod.mass;
     v += a * solveOptions.dt;
     x += v * solveOptions.dt;
     t += solveOptions.dt;
@@ -296,6 +338,7 @@ function simulateSingle(scene, solveOptions) {
         I: current,
         E_induced: inducedEmf,
         F_amp: ampForce,
+        F_friction: frictionForce,
         segment_index: segmentIndex,
         theta_deg: scene.track.segments[segmentIndex]?.angle_deg ?? 0
       });
@@ -310,10 +353,11 @@ function simulateSingle(scene, solveOptions) {
       ...baseSummary({ model: "single_rod" }, scene.track, solveOptions),
       Bn,
       total_resistance: totalR,
-      final_state: { t, x, v, a, I: current, E_induced: inducedEmf, F_amp: ampForce },
+      final_state: { t, x, v, a, I: current, E_induced: inducedEmf, F_amp: ampForce, F_friction: frictionForce },
       extrema: {
         max_abs_current: Math.max(...history.I.map(value => Math.abs(value)), 0),
         max_speed: Math.max(...history.v.map(value => Math.abs(value)), 0),
+        max_abs_friction: Math.max(...history.F_friction.map(value => Math.abs(value)), 0),
         min_x: Math.min(...history.x, x),
         max_x: Math.max(...history.x, x)
       }
@@ -332,7 +376,7 @@ function simulateDouble(scene, solveOptions) {
 
   scene.track.profile_start = x1Start;
 
-  const history = makeSeriesStore(["t", "x1", "x2", "v1", "v2", "a1", "a2", "I", "E", "Q_total", "stage", "distance", "theta1_deg", "theta2_deg"]);
+  const history = makeSeriesStore(["t", "x1", "x2", "v1", "v2", "a1", "a2", "I", "E", "Q_total", "stage", "distance", "theta1_deg", "theta2_deg", "F_friction1", "F_friction2"]);
   const events = [];
 
   let t = 0;
@@ -345,6 +389,8 @@ function simulateDouble(scene, solveOptions) {
   let I = 0;
   let E = 0;
   let Q_total = 0;
+  let friction1 = 0;
+  let friction2 = 0;
   let stage = x1 >= splitX ? 2 : 1;
   let segment1 = getTrackSegmentIndex(x1, scene.track);
   let segment2 = getTrackSegmentIndex(x2, scene.track);
@@ -377,9 +423,28 @@ function simulateDouble(scene, solveOptions) {
     const theta2 = getTrackAngleAt(x2, scene.track);
     const Fa1 = -Bn * I * activeL1;
     const Fa2 = Bn * I * scene.rod2.length;
+    const gravity1 = scene.rod1.mass * scene.environment.g * Math.sin(theta1);
+    const gravity2 = scene.rod2.mass * scene.environment.g * Math.sin(theta2);
+    const normal1 = scene.rod1.mass * scene.environment.g * Math.cos(theta1);
+    const normal2 = scene.rod2.mass * scene.environment.g * Math.cos(theta2);
+    const drive1 = scene.rod1.external_force + Fa1 - gravity1;
+    const drive2 = scene.rod2.external_force + Fa2 - gravity2;
 
-    a1 = (scene.rod1.external_force + Fa1 - scene.rod1.mass * scene.environment.g * Math.sin(theta1)) / scene.rod1.mass;
-    a2 = (scene.rod2.external_force + Fa2 - scene.rod2.mass * scene.environment.g * Math.sin(theta2)) / scene.rod2.mass;
+    friction1 = kineticFrictionForce({
+      mu: scene.rod1.kinetic_friction,
+      normalForce: normal1,
+      velocity: v1,
+      driveForce: drive1
+    });
+    friction2 = kineticFrictionForce({
+      mu: scene.rod2.kinetic_friction,
+      normalForce: normal2,
+      velocity: v2,
+      driveForce: drive2
+    });
+
+    a1 = (drive1 + friction1) / scene.rod1.mass;
+    a2 = (drive2 + friction2) / scene.rod2.mass;
 
     v1 += a1 * solveOptions.dt;
     v2 += a2 * solveOptions.dt;
@@ -438,7 +503,9 @@ function simulateDouble(scene, solveOptions) {
         stage,
         distance: x2 - x1,
         theta1_deg: scene.track.segments[segment1]?.angle_deg ?? 0,
-        theta2_deg: scene.track.segments[segment2]?.angle_deg ?? 0
+        theta2_deg: scene.track.segments[segment2]?.angle_deg ?? 0,
+        F_friction1: friction1,
+        F_friction2: friction2
       });
     }
   }
@@ -452,11 +519,13 @@ function simulateDouble(scene, solveOptions) {
       Bn,
       total_resistance: totalR,
       split_x: splitX,
-      final_state: { t, x1, x2, v1, v2, a1, a2, I, E, Q_total, stage },
+      final_state: { t, x1, x2, v1, v2, a1, a2, I, E, Q_total, stage, F_friction1: friction1, F_friction2: friction2 },
       extrema: {
         max_abs_current: Math.max(...history.I.map(value => Math.abs(value)), 0),
         max_speed_rod1: Math.max(...history.v1.map(value => Math.abs(value)), 0),
         max_speed_rod2: Math.max(...history.v2.map(value => Math.abs(value)), 0),
+        max_abs_friction_rod1: Math.max(...history.F_friction1.map(value => Math.abs(value)), 0),
+        max_abs_friction_rod2: Math.max(...history.F_friction2.map(value => Math.abs(value)), 0),
         min_distance: Math.min(...history.distance, x2 - x1)
       }
     },
@@ -731,7 +800,8 @@ function describeMovingRodSchemaTool() {
         rod: {
           length: "L, rod length / rail spacing",
           mass: "m",
-          internal_resistance: "r"
+          internal_resistance: "r",
+          kinetic_friction: "mu_k, kinetic friction coefficient"
         },
         circuit: {
           external_resistance: "R",
@@ -747,8 +817,8 @@ function describeMovingRodSchemaTool() {
         dist0: "initial separation between rods",
         split_ratio: "connection-point ratio, 0 to 1",
         collide: "boolean, whether to apply 1D elastic collision",
-        rod1: { length: "L1", mass: "m1", resistance: "R1", v0: "initial velocity", external_force: "F1" },
-        rod2: { length: "L2", mass: "m2", resistance: "R2", v0: "initial velocity", external_force: "F2" }
+        rod1: { length: "L1", mass: "m1", resistance: "R1", kinetic_friction: "mu_k1", v0: "initial velocity", external_force: "F1" },
+        rod2: { length: "L2", mass: "m2", resistance: "R2", kinetic_friction: "mu_k2", v0: "initial velocity", external_force: "F2" }
       }
     },
     query_schema: {
@@ -771,7 +841,7 @@ function describeMovingRodSchemaTool() {
             ]
           },
           single_rod: {
-            rod: { length: 1.0, mass: 1.0, internal_resistance: 0.5 },
+            rod: { length: 1.0, mass: 1.0, internal_resistance: 0.5, kinetic_friction: 0.15 },
             circuit: { external_resistance: 2.0, source_voltage: 1.0 },
             dynamics: { external_force: 2.0, x0: 0, v0: 0 }
           }
@@ -792,15 +862,15 @@ function describeMovingRodSchemaTool() {
             dist0: 2.0,
             split_ratio: 0.5,
             collide: true,
-            rod1: { length: 1.4, mass: 1.0, resistance: 0.6, v0: 6.0, external_force: 0.0 },
-            rod2: { length: 1.0, mass: 1.0, resistance: 0.6, v0: 0.0, external_force: 0.0 }
+            rod1: { length: 1.4, mass: 1.0, resistance: 0.6, kinetic_friction: 0.08, v0: 6.0, external_force: 0.0 },
+            rod2: { length: 1.0, mass: 1.0, resistance: 0.6, kinetic_friction: 0.08, v0: 0.0, external_force: 0.0 }
           }
         }
       }
     },
     notes: [
       "This MCP focuses on the segmented inclined-track rod problems currently implemented in 1.html and 2.html.",
-      "Single-rod dynamics use Bn = B cos(phi), I = (Bn L v - U) / (R + r), and a = (F - Bn I L - m g sin(theta(x))) / m.",
+      "Single-rod dynamics use Bn = B cos(phi), I = (Bn L v - U) / (R + r), and add kinetic friction f_k = mu_k N opposite the current motion or driving tendency.",
       "Double-rod dynamics keep the current two-stage logic: activeL1 switches from L1 to L2 after rod1 crosses split_x.",
       "Past the last segment, the solver continues with the final segment angle."
     ]

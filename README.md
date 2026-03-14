@@ -16,6 +16,7 @@ The local MCP does not try to write the final human derivation. It acts as a rel
 - double-rod motion with the current two-stage `splitX` logic
 - magnetic-field normal component `Bn = B cos(phi)`
 - gravity along track using local segment angle `theta(x)`
+- configurable kinetic friction coefficient `mu_k`
 - optional elastic collision for the double-rod model
 
 ## Install

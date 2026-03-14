@@ -8,6 +8,7 @@ const {
 } = require("../src/simulator");
 
 async function testSingleRod() {
+  const mu = 0.2;
   const simulation = await simulateMovingRodTool({
     scene: {
       model: "single_rod",
@@ -20,7 +21,7 @@ async function testSingleRod() {
         ]
       },
       single_rod: {
-        rod: { length: 1, mass: 1, internal_resistance: 0.5 },
+        rod: { length: 1, mass: 1, internal_resistance: 0.5, kinetic_friction: mu },
         circuit: { external_resistance: 2, source_voltage: 0 },
         dynamics: { external_force: 0, x0: 1.6, v0: 0 }
       }
@@ -30,7 +31,9 @@ async function testSingleRod() {
 
   assert.equal(simulation.status, "PASS");
   assert.equal(simulation.summary.model, "single_rod");
-  assert.ok(Math.abs(simulation.history.a[0] + 4.9) < 0.2, "single-rod local gravity should be close to -g sin30");
+  const expectedA0 = -9.8 * Math.sin(Math.PI / 6) + 9.8 * mu * Math.cos(Math.PI / 6);
+  assert.ok(Math.abs(simulation.history.a[0] - expectedA0) < 0.2, "single-rod acceleration should include kinetic friction");
+  assert.ok(simulation.history.F_friction[0] > 0, "friction should oppose the downhill driving tendency");
   const measure = await measureMovingRodTool({
     simulation,
     query: { type: "segment_at_position", position: 1.6 }
@@ -55,8 +58,8 @@ async function testDoubleRod() {
         dist0: 2,
         split_ratio: 0.5,
         collide: true,
-        rod1: { length: 1.4, mass: 1, resistance: 0.6, v0: 6, external_force: 0 },
-        rod2: { length: 1.0, mass: 1, resistance: 0.6, v0: 0, external_force: 0 }
+        rod1: { length: 1.4, mass: 1, resistance: 0.6, kinetic_friction: 0.1, v0: 6, external_force: 0 },
+        rod2: { length: 1.0, mass: 1, resistance: 0.6, kinetic_friction: 0.1, v0: 0, external_force: 0 }
       }
     },
     solve_options: { dt: 0.01, t_end: 0.5, sample_every: 1 }
@@ -65,6 +68,7 @@ async function testDoubleRod() {
   assert.equal(simulation.status, "PASS");
   assert.equal(simulation.summary.model, "double_rod");
   assert.ok(Math.abs(simulation.summary.Bn) < 1e-9, "phi=90 deg should zero out Bn");
+  assert.ok(simulation.summary.extrema.max_abs_friction_rod1 > 0, "double-rod run should record friction on rod1");
   const stageEvent = await measureMovingRodTool({
     simulation,
     query: { type: "event_search", event_type: "stage_change", limit: 1 }
