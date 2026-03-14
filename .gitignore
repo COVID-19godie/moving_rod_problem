@@ -1,0 +1,9 @@
+node_modules/
+output/
+experiment_runs/
+mcp_runtime/
+temp_emf_solver_mcp_lightweight/
+
+*.log
+*.tmp
+*.pid

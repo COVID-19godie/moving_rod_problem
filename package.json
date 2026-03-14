@@ -1,0 +1,15 @@
+{
+  "name": "moving-rod-problem",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Segmented inclined-track rod problem simulator and MCP server",
+  "main": "mcp/src/index.js",
+  "scripts": {
+    "start:mcp": "node mcp/src/index.js",
+    "start:mcp:utf8": "powershell -ExecutionPolicy Bypass -File ./start-mcp-utf8.ps1",
+    "test:mcp": "node mcp/tests/run-tests.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1"
+  }
+}

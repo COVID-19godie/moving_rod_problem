@@ -1,0 +1,93 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const {
+  describeMovingRodSchemaTool,
+  measureMovingRodTool,
+  simulateMovingRodTool
+} = require("../src/simulator");
+
+async function testSingleRod() {
+  const simulation = await simulateMovingRodTool({
+    scene: {
+      model: "single_rod",
+      environment: { B: 0, phi_deg: 0, g: 9.8 },
+      track: {
+        segments: [
+          { angle_deg: 0, length: 1.5 },
+          { angle_deg: 30, length: 1.5 },
+          { angle_deg: -10, length: 1.5 }
+        ]
+      },
+      single_rod: {
+        rod: { length: 1, mass: 1, internal_resistance: 0.5 },
+        circuit: { external_resistance: 2, source_voltage: 0 },
+        dynamics: { external_force: 0, x0: 1.6, v0: 0 }
+      }
+    },
+    solve_options: { dt: 0.01, t_end: 0.05, sample_every: 1 }
+  });
+
+  assert.equal(simulation.status, "PASS");
+  assert.equal(simulation.summary.model, "single_rod");
+  assert.ok(Math.abs(simulation.history.a[0] + 4.9) < 0.2, "single-rod local gravity should be close to -g sin30");
+  const measure = await measureMovingRodTool({
+    simulation,
+    query: { type: "segment_at_position", position: 1.6 }
+  });
+  assert.equal(measure.status, "PASS");
+  assert.equal(measure.matches[0].segment_index, 1);
+}
+
+async function testDoubleRod() {
+  const simulation = await simulateMovingRodTool({
+    scene: {
+      model: "double_rod",
+      environment: { B: 1.2, phi_deg: 90, g: 9.8 },
+      track: {
+        segments: [
+          { angle_deg: 5, length: 1.2 },
+          { angle_deg: 20, length: 1.2 },
+          { angle_deg: -8, length: 1.2 }
+        ]
+      },
+      double_rod: {
+        dist0: 2,
+        split_ratio: 0.5,
+        collide: true,
+        rod1: { length: 1.4, mass: 1, resistance: 0.6, v0: 6, external_force: 0 },
+        rod2: { length: 1.0, mass: 1, resistance: 0.6, v0: 0, external_force: 0 }
+      }
+    },
+    solve_options: { dt: 0.01, t_end: 0.5, sample_every: 1 }
+  });
+
+  assert.equal(simulation.status, "PASS");
+  assert.equal(simulation.summary.model, "double_rod");
+  assert.ok(Math.abs(simulation.summary.Bn) < 1e-9, "phi=90 deg should zero out Bn");
+  const stageEvent = await measureMovingRodTool({
+    simulation,
+    query: { type: "event_search", event_type: "stage_change", limit: 1 }
+  });
+  assert.equal(stageEvent.status, "PASS");
+  assert.ok(stageEvent.derived_values.count >= 1, "double-rod run should enter stage 2");
+}
+
+async function testSchema() {
+  const schema = describeMovingRodSchemaTool();
+  assert.ok(schema.scene_schema);
+  assert.ok(schema.query_schema);
+  assert.ok(schema.examples.single_rod);
+}
+
+async function main() {
+  await testSingleRod();
+  await testDoubleRod();
+  await testSchema();
+  console.log("mcp tests passed");
+}
+
+main().catch(error => {
+  console.error(error);
+  process.exit(1);
+});

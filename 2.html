@@ -1,0 +1,900 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>电磁感应双棒 - 比例连接点版</title>
+    
+    <script>
+    window.MathJax = {
+      tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+      svg: { fontCache: 'global' }
+    };
+    </script>
+    <script>
+    (function() {
+      const CDN_SOURCES = {
+        chartJs: [
+          "./local_libs/Chart.js@3.9.1/chart.min.js",
+          "https://cdn.staticfile.net/Chart.js/3.9.1/chart.min.js",
+          "https://lib.baomitu.com/Chart.js/3.9.1/chart.min.js",
+          "https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js",
+          "https://unpkg.com/chart.js@3.9.1/dist/chart.min.js"
+        ],
+        mathJax: [
+          "./local_libs/mathjax@3.2.2/tex-mml-chtml.js",
+          "https://cdn.staticfile.net/mathjax/3.2.2/es5/tex-mml-chtml.js",
+          "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js",
+          "https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js"
+        ]
+      };
+
+      function loadScriptWithFallback(name, urls, check) {
+        return new Promise((resolve, reject) => {
+          const exists = typeof check === "function" ? check : () => false;
+          if (exists()) return resolve("already-loaded");
+
+          const tryLoad = index => {
+            if (index >= urls.length) {
+              reject(new Error(name + " load failed from all sources"));
+              return;
+            }
+            const script = document.createElement("script");
+            script.src = urls[index];
+            script.async = true;
+            script.onload = () => {
+              console.info("[asset]", name, "loaded from", urls[index]);
+              resolve(urls[index]);
+            };
+            script.onerror = () => {
+              console.warn("[asset]", name, "failed from", urls[index]);
+              script.remove();
+              tryLoad(index + 1);
+            };
+            document.head.appendChild(script);
+          };
+
+          tryLoad(0);
+        });
+      }
+
+      window.__assetLoader = {
+        state: { chartDone: false },
+        loadScriptWithFallback
+      };
+
+      window.__essentialDepsReady = loadScriptWithFallback("Chart.js", CDN_SOURCES.chartJs, () => typeof window.Chart !== "undefined")
+        .catch(error => {
+          console.error("[asset] Chart.js unavailable:", error.message);
+          return null;
+        })
+        .finally(() => {
+          window.__assetLoader.state.chartDone = true;
+        });
+
+      window.__optionalDepsReady = loadScriptWithFallback("MathJax", CDN_SOURCES.mathJax, () => typeof window.MathJax?.typesetPromise === "function")
+        .catch(error => {
+          console.warn("[asset] MathJax unavailable:", error.message);
+          return null;
+        });
+    })();
+    </script>
+    
+    <style>
+        :root { 
+            --primary: #2196F3; --rod1: #2196F3; --rod2: #E91E63; 
+            --bg: #f8f9fa; --panel: #fff; --text: #333; 
+        }
+        body { font-family: "PingFang SC", "Segoe UI", sans-serif; margin: 0; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+        
+        .sidebar { width: 340px; background: var(--panel); border-right: 1px solid #ddd; display: flex; flex-direction: column; z-index: 20; padding: 12px; box-shadow: 4px 0 10px rgba(0,0,0,0.05); overflow-y: auto; flex-shrink: 0; }
+        .main { flex: 1; display: flex; flex-direction: column; padding: 12px; gap: 12px; position: relative; overflow: hidden; }
+        
+        .group { background: #fff; padding: 12px; border-radius: 8px; border: 1px solid #eee; margin-bottom: 12px; }
+        .group h3 { margin: 0 0 10px 0; font-size: 14px; border-left: 4px solid var(--primary); padding-left: 8px; color: #555; }
+        .rod2-group h3 { border-left-color: var(--rod2); }
+        
+        .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; }
+        input[type="number"] { width: 70px; padding: 4px 8px; text-align: right; border: 1px solid #ddd; border-radius: 4px; font-family: Consolas, monospace; }
+        input[type="number"]:focus { border-color: var(--primary); outline: none; }
+        
+        .btns { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+        button { padding: 10px; border: none; border-radius: 6px; color: #fff; cursor: pointer; font-weight: 600; font-size: 14px; transition: 0.2s; }
+        .btn-start { background: #4CAF50; } .btn-pause { background: #FFC107; color: #333; } .btn-reset { background: #F44336; }
+        .btn-apply { width: 100%; background: var(--primary); margin-bottom: 15px; padding: 10px; font-size: 14px; box-shadow: 0 2px 5px rgba(33, 150, 243, 0.2); }
+
+        .canvas-box { flex: 1; min-height: 300px; background: #fff; border-radius: 8px; position: relative; border: 1px solid #ddd; cursor: grab; }
+        canvas#sim { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+        
+        .charts { height: 260px; flex-shrink: 0; display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+        .chart-box { background: #fff; border-radius: 6px; padding: 8px; border: 1px solid #ddd; min-width: 0; }
+
+        .overlay { 
+            position: absolute; top: 12px; right: 12px; 
+            background: rgba(255,255,255,0.92); backdrop-filter: blur(4px);
+            padding: 12px; border-radius: 8px; 
+            font-family: 'Consolas', monospace; font-size: 12px; 
+            pointer-events: none; border: 1px solid rgba(0,0,0,0.1); 
+            min-width: 150px;
+        }
+        .overlay div { margin-bottom: 4px; display: flex; justify-content: space-between; }
+        .val { font-weight: bold; }
+
+        .slider-wrap { display: flex; align-items: center; gap: 8px; background: #f1f3f5; padding: 6px 10px; border-radius: 20px; margin-top: 5px;}
+        input[type="range"] { flex: 1; height: 4px; background: #ddd; -webkit-appearance: none; border-radius: 2px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: var(--primary); border-radius: 50%; cursor: pointer; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+        .status-badge {
+            display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; color: #fff; margin-left: 5px;
+        }
+        .status-1 { background: #2196F3; }
+        .status-2 { background: #FF9800; }
+        
+        /* 新增：提示文字样式 */
+        .hint-text { font-size: 11px; color: #7f8c8d; margin-top: -4px; margin-bottom: 4px; text-align: right; font-style: italic; }
+        .segment-editor { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 8px; }
+        .segment-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .segment-row label { font-size: 12px; color: #666; }
+
+        @media (max-width: 850px) {
+            body { flex-direction: column; overflow-y: auto; height: auto; }
+            .sidebar { width: 100%; }
+            .canvas-box { height: 350px; flex: none; }
+            .charts { grid-template-columns: 1fr 1fr; height: 360px; grid-template-rows: 1fr 1fr; }
+        }
+    </style>
+
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="btns">
+        <button class="btn-start" onclick="app.start()">开始</button>
+        <button class="btn-pause" onclick="app.pause()">暂停</button>
+        <button class="btn-reset" onclick="app.reset()">重置</button>
+    </div>
+    <button class="btn-apply" onclick="app.applyParams()">🔄 点击应用并锁定坐标</button>
+
+    <div class="group">
+        <h3>全局控制</h3>
+        <div class="row"><label>仿真速度</label><span id="txt_speed" style="font-weight:bold; color:var(--primary)">1.0x</span></div>
+        <div class="slider-wrap">
+            <span style="font-size:10px;">慢</span>
+            <input type="range" id="sim_speed" min="0.1" max="5.0" step="0.1" value="1.0" oninput="document.getElementById('txt_speed').innerText = this.value + 'x'">
+            <span style="font-size:10px;">快</span>
+        </div>
+    </div>
+
+    <div class="group">
+        <h3>公共环境</h3>
+        <div class="row"><label>磁感应强度 B (T)</label><input type="number" id="p_B" value="1.0" step="0.1"></div>
+        <div class="row"><label>第1段角 θ1 (deg)</label><input type="number" id="p_theta" value="0.0" step="1"></div>
+        <div class="row"><label>磁场方向角 φ (deg)</label><input type="number" id="p_phi" value="0.0" step="1"></div>
+        <div class="row"><label>分段数 N</label><input type="number" id="p_seg_count" value="1" min="1" max="6" step="1" onchange="syncDualSegmentInputs(); app?.applyParams?.()"></div>
+        <div class="row"><label>每段长度 d (m)</label><input type="number" id="p_seg_len" value="2.0" min="0.2" step="0.1"></div>
+        <div id="dualSegmentEditor" class="segment-editor"></div>
+        
+        <div class="row" style="background: #fff8e1; padding: 4px 4px 0 4px; border-radius: 4px 4px 0 0; border:1px solid #ffecb3; border-bottom: none;">
+            <label style="font-weight:bold; color:#F57F17;">连接点位置 (0-1)</label>
+            <input type="number" id="p_splitRatio" value="0.5" step="0.1" min="0.0" max="1.0" style="border-color:#FFC107;">
+        </div>
+        <div style="background: #fff8e1; padding: 0 4px 4px 4px; border-radius: 0 0 4px 4px; border:1px solid #ffecb3; border-top: none; margin-bottom: 5px;">
+            <div class="hint-text">0=蓝棒初始处，1=红棒初始处</div>
+        </div>
+
+        <div class="row" style="background: #e3f2fd; padding: 4px; border-radius: 4px;">
+            <label style="font-weight:bold; color:#1565C0;">初始间距 Δx (m)</label>
+            <input type="number" id="p_dist0" value="2.0" step="0.1" style="border-color:#2196F3;">
+        </div>
+    </div>
+
+    <div class="group">
+        <h3>棒1 (左/蓝)</h3>
+        <div class="row"><label>长度 L1 (m)</label><input type="number" id="p_L1" value="1.0" step="0.1"></div>
+        <div class="row"><label>质量 m1 (kg)</label><input type="number" id="p_m1" value="0.2" step="0.1"></div>
+        <div class="row"><label>电阻 R1 (Ω)</label><input type="number" id="p_R1" value="0.5" step="0.1"></div>
+        <div class="row"><label>初速度 v1 (m/s)</label><input type="number" id="p_v1" value="6.0" step="0.1"></div>
+        <div class="row"><label>外力 F1 (N)</label><input type="number" id="p_F1" value="0.0" step="0.1"></div>
+    </div>
+
+    <div class="group rod2-group">
+        <h3>棒2 (右/红)</h3>
+        <div class="row"><label>长度 L2 (m)</label><input type="number" id="p_L2" value="1.0" step="0.1"></div>
+        <div class="row"><label>质量 m2 (kg)</label><input type="number" id="p_m2" value="0.1" step="0.1"></div>
+        <div class="row"><label>电阻 R2 (Ω)</label><input type="number" id="p_R2" value="0.5" step="0.1"></div>
+        <div class="row"><label>初速度 v2 (m/s)</label><input type="number" id="p_v2" value="0.0" step="0.1"></div>
+        <div class="row"><label>外力 F2 (N)</label><input type="number" id="p_F2" value="0.0" step="0.1"></div>
+    </div>
+    
+    <div class="row" style="justify-content: flex-end; color:#666;">
+        <label style="cursor:pointer; display:flex; align-items:center;">
+            <input type="checkbox" id="chk_collide" checked style="width:auto; margin-right:6px;"> 开启弹性碰撞
+        </label>
+    </div>
+
+    <div class="group">
+        <h3>斜轨核心式</h3>
+        <div style="font-size:12px; line-height:1.6; color:#666;">
+            <div>$B_n = B\cos\varphi$</div>
+            <div>$E = B_n(L_1'v_1 - L_2v_2)$</div>
+            <div>$F_{a1} = -B_nIL_1',\quad F_{a2} = B_nIL_2$</div>
+            <div>$a_1 = \frac{F_1 + F_{a1} - m_1g\sin\theta(x_1)}{m_1}$</div>
+            <div>$a_2 = \frac{F_2 + F_{a2} - m_2g\sin\theta(x_2)}{m_2}$</div>
+        </div>
+    </div>
+</div>
+
+<div class="main">
+    <div class="canvas-box">
+        <canvas id="sim"></canvas>
+        <div class="overlay">
+            <div><span>时间 t</span> <span class="val" id="val_t">0.00 s</span></div>
+            <div style="border-bottom:1px dashed #ccc; margin:4px 0;"></div>
+            <div><span>状态</span> <span id="val_stage" class="status-badge status-1">宽轨阶段</span></div>
+            <div><span style="color:var(--rod1)">v1</span> <span class="val" id="val_v1">0.00</span></div>
+            <div><span style="color:var(--rod2)">v2</span> <span class="val" id="val_v2">0.00</span></div>
+            <div><span style="color:#6f42c1">I</span> <span class="val" id="val_I">0.00 A</span></div>
+            <div><span>Δx</span> <span class="val" id="val_dist">0.00 m</span></div>
+        </div>
+    </div>
+    <div class="charts">
+        <div class="chart-box"><canvas id="c_v"></canvas></div>
+        <div class="chart-box"><canvas id="c_a"></canvas></div>
+        <div class="chart-box"><canvas id="c_I"></canvas></div>
+        <div class="chart-box"><canvas id="c_E"></canvas></div>
+    </div>
+</div>
+
+<script>
+const G = 9.8;
+const degToRad = deg => deg * Math.PI / 180;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const MAX_SEGMENTS = 6;
+
+function getDualSegmentCount() {
+    const raw = parseInt(document.getElementById('p_seg_count').value, 10);
+    return clamp(Number.isFinite(raw) ? raw : 1, 1, MAX_SEGMENTS);
+}
+
+function syncDualSegmentInputs() {
+    const count = getDualSegmentCount();
+    document.getElementById('p_seg_count').value = count;
+    const host = document.getElementById('dualSegmentEditor');
+    const previous = Array.from(host.querySelectorAll('input')).map(input => input.value);
+    host.innerHTML = '';
+    for (let index = 2; index <= count; index += 1) {
+        const row = document.createElement('div');
+        row.className = 'segment-row';
+        const label = document.createElement('label');
+        label.textContent = `第${index}段角 θ${index} (deg)`;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.id = `p_seg_angle_${index}`;
+        input.step = '1';
+        input.value = previous[index - 2] ?? document.getElementById('p_theta').value;
+        input.onchange = () => app?.applyParams?.();
+        row.appendChild(label);
+        row.appendChild(input);
+        host.appendChild(row);
+    }
+}
+
+function readDualSegmentAngles() {
+    const count = getDualSegmentCount();
+    const values = [];
+    for (let index = 1; index <= count; index += 1) {
+        const id = index === 1 ? 'p_theta' : `p_seg_angle_${index}`;
+        values.push(parseFloat(document.getElementById(id)?.value) || 0);
+    }
+    return values;
+}
+
+function getTrackSegmentIndex(x, profileStart, segmentLength, count) {
+    if (count <= 1 || segmentLength <= 1e-9) return 0;
+    if (x <= profileStart) return 0;
+    const idx = Math.floor((x - profileStart) / segmentLength);
+    return clamp(idx, 0, count - 1);
+}
+
+function getTrackAngleAt(x, profileStart, segmentLength, anglesRad) {
+    const idx = getTrackSegmentIndex(x, profileStart, segmentLength, anglesRad.length);
+    return anglesRad[idx] ?? 0;
+}
+
+function getTrackElevationAt(x, profileStart, segmentLength, anglesRad) {
+    if (!anglesRad.length) return 0;
+    if (x <= profileStart) return (x - profileStart) * Math.tan(anglesRad[0]);
+    let elevation = 0;
+    let cursor = profileStart;
+    for (let index = 0; index < anglesRad.length; index += 1) {
+        const angle = anglesRad[index];
+        const next = cursor + segmentLength;
+        if (x <= next) return elevation + (x - cursor) * Math.tan(angle);
+        elevation += segmentLength * Math.tan(angle);
+        cursor = next;
+    }
+    return elevation + (x - cursor) * Math.tan(anglesRad[anglesRad.length - 1]);
+}
+
+function getTrackBreakpoints(xMin, xMax, profileStart, segmentLength, count, extra = []) {
+    const points = [xMin, ...extra];
+    for (let index = 0; index <= count; index += 1) {
+        const x = profileStart + index * segmentLength;
+        if (x > xMin + 1e-6 && x < xMax - 1e-6) points.push(x);
+    }
+    points.push(xMax);
+    return [...new Set(points.filter(x => Number.isFinite(x)).map(x => +x.toFixed(6)))].sort((a, b) => a - b);
+}
+
+class Renderer {
+    constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.colors = {
+            rod1: ["#42A5F5", "#1565C0"], rod2: ["#EF5350", "#C62828"],
+            rail1: "rgba(33, 150, 243, 0.55)", rail2: "rgba(233, 30, 99, 0.55)",
+            field: "rgba(111, 66, 193, 0.08)", fieldText: "#8E44AD",
+            v: "#4CAF50", F_amp: "#9c27b0", F_ext: "#FF9800",
+            gravity: "#455A64", gravityComp: "#00897B"
+        };
+        this.view = { angle: -0.72, depth: 34, pointerId: null, lastX: 0, lastY: 0 };
+        this.resize();
+        this.bindPointerEvents();
+        window.addEventListener('resize', () => this.resize());
+    }
+
+    resize() {
+        const rect = this.canvas.parentElement.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = rect.width * dpr;
+        this.canvas.height = rect.height * dpr;
+        this.width = rect.width;
+        this.height = rect.height;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.canvas.style.cursor = this.view.pointerId === null ? 'grab' : 'grabbing';
+    }
+
+    bindPointerEvents() {
+        const stop = pointerId => {
+            if (this.view.pointerId !== pointerId) return;
+            this.view.pointerId = null;
+            this.canvas.style.cursor = 'grab';
+            this.canvas.releasePointerCapture?.(pointerId);
+        };
+
+        this.canvas.addEventListener('pointerdown', event => {
+            if (event.button !== undefined && event.button !== 0) return;
+            this.view.pointerId = event.pointerId;
+            this.view.lastX = event.clientX;
+            this.view.lastY = event.clientY;
+            this.canvas.style.cursor = 'grabbing';
+            this.canvas.setPointerCapture?.(event.pointerId);
+        });
+
+        this.canvas.addEventListener('pointermove', event => {
+            if (this.view.pointerId !== event.pointerId) return;
+            const dx = event.clientX - this.view.lastX;
+            const dy = event.clientY - this.view.lastY;
+            this.view.lastX = event.clientX;
+            this.view.lastY = event.clientY;
+            this.view.angle += dx * 0.01;
+            this.view.depth = clamp(this.view.depth - dy * 0.22, 18, 58);
+            this.onViewChange?.();
+        });
+
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => {
+            this.canvas.addEventListener(type, event => stop(event.pointerId));
+        });
+    }
+
+    projectPoint(worldX, worldY, worldZ, scene) {
+        const dx = (worldX - scene.centerX) * scene.scaleX;
+        const depthX = Math.cos(this.view.angle) * worldY * this.view.depth;
+        const depthY = Math.sin(this.view.angle) * worldY * this.view.depth;
+        return {
+            x: scene.originX + dx + depthX,
+            y: scene.originY - worldZ * scene.scaleZ - depthY
+        };
+    }
+
+    draw(phy) {
+        const ctx = this.ctx;
+        const w = this.width;
+        const h = this.height;
+        const state = phy.s;
+        const p = phy.p;
+        const x1 = phy.x1;
+        const x2 = phy.x2;
+        const theta = p.thetaRad;
+
+        ctx.clearRect(0, 0, w, h);
+        const bg = ctx.createLinearGradient(0, 0, 0, h);
+        bg.addColorStop(0, "#f8fbff");
+        bg.addColorStop(1, "#e8eef5");
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        const h1 = p.L1;
+        const h2 = p.L2;
+        const maxGap = Math.max(h1, h2);
+        const cx = (x1 + x2) / 2;
+        const distance = Math.abs(x2 - x1) + 2;
+        const scaleX = Math.min(112, (w * 0.52) / distance);
+        const scaleZ = w < 700 ? 72 : 84;
+        const worldHalfSpan = Math.min(3.8, w * 0.42 / scaleX);
+        const leftWorld = cx - worldHalfSpan;
+        const rightWorld = cx + worldHalfSpan;
+        const scene = {
+            centerX: cx,
+            originX: w * 0.52,
+            originY: clamp(h * 0.72, maxGap * 0.4 + 90, h - 36),
+            scaleX,
+            scaleZ
+        };
+        const pointAt = (worldX, offset = 0, lift = 0) => this.projectPoint(worldX, offset, getTrackElevationAt(worldX, p.profileStart, p.segmentLength, p.segmentAnglesRad) + lift, scene);
+        const railBreaks = getTrackBreakpoints(leftWorld, rightWorld, p.profileStart, p.segmentLength, p.segmentCount, [p.splitX]);
+
+        this.drawField(ctx, pointAt, leftWorld, rightWorld, maxGap);
+        this.drawRailPair(pointAt, railBreaks.filter(x => x <= p.splitX + 1e-6), h1, this.colors.rail1);
+        this.drawRailPair(pointAt, railBreaks.filter(x => x >= p.splitX - 1e-6), h2, this.colors.rail2);
+
+        if (p.splitX >= leftWorld && p.splitX <= rightWorld && Math.abs(h1 - h2) > 1) {
+            this.drawSegment(pointAt(p.splitX, -h1 / 2), pointAt(p.splitX, -h2 / 2), "#999", 2);
+            this.drawSegment(pointAt(p.splitX, h1 / 2), pointAt(p.splitX, h2 / 2), "#999", 2);
+            ctx.fillStyle = "#666";
+            [pointAt(p.splitX, -h1 / 2), pointAt(p.splitX, -h2 / 2), pointAt(p.splitX, h1 / 2), pointAt(p.splitX, h2 / 2)].forEach(pt => {
+                ctx.beginPath();
+                ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.fillStyle = "#F57F17";
+            ctx.font = "10px monospace";
+            ctx.textAlign = "center";
+            ctx.fillText(`Split (${p.splitRatio.toFixed(2)})`, pointAt(p.splitX, maxGap / 2 + 0.22).x, pointAt(p.splitX, maxGap / 2 + 0.22).y);
+        }
+
+        this.drawGround(ctx, pointAt, leftWorld - 0.3, rightWorld + 0.3, maxGap / 2 + 0.8);
+        this.drawRod(ctx, phy, pointAt, x1, x1 >= p.splitX ? p.L2 : p.L1, this.colors.rod1, "Rod1", state.v1, p.F1, p.m1, true, maxGap);
+        this.drawRod(ctx, phy, pointAt, x2, x2 >= p.splitX ? p.L2 : p.L1, this.colors.rod2, "Rod2", state.v2, p.F2, p.m2, false, maxGap);
+        this.drawDistanceMarker(ctx, pointAt, x1, x2, maxGap);
+        this.drawThetaMarker(ctx, pointAt(leftWorld + 0.25, maxGap / 2 + 0.28), theta, phy.theta1Local ?? theta, phy.theta2Local ?? theta, p.segmentCount);
+
+        ctx.save();
+        ctx.fillStyle = this.colors.fieldText;
+        ctx.font = "12px Arial";
+        ctx.textAlign = "left";
+        const fieldLabel = pointAt(leftWorld + 0.45, -maxGap / 2 - 0.22, 0.18);
+        ctx.fillText(`Bn=${p.Bn.toFixed(2)} T`, fieldLabel.x, fieldLabel.y);
+        ctx.restore();
+
+        ctx.save();
+        ctx.fillStyle = "#687786";
+        ctx.font = "12px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText("拖动画面可调 2.5D 分段视角", 14, 22);
+        ctx.restore();
+    }
+
+    drawField(ctx, pointAt, leftWorld, rightWorld, gap) {
+        ctx.fillStyle = this.colors.field;
+        ctx.beginPath();
+        [pointAt(leftWorld, -gap / 2 - 0.18, 0.01), pointAt(rightWorld, -gap / 2 - 0.18, 0.01), pointAt(rightWorld, gap / 2 + 0.18, 0.01), pointAt(leftWorld, gap / 2 + 0.18, 0.01)].forEach((pt, idx) => {
+            if (idx === 0) ctx.moveTo(pt.x, pt.y);
+            else ctx.lineTo(pt.x, pt.y);
+        });
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(0,0,0,0.08)";
+        ctx.font = "14px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        for (let wx = leftWorld + 0.2; wx < rightWorld; wx += 0.65) {
+            for (let offset = -gap / 2 + 0.2; offset < gap / 2 - 0.08; offset += 0.55) {
+                const mark = pointAt(wx, offset, 0.03);
+                ctx.fillText("×", mark.x, mark.y);
+            }
+        }
+    }
+
+    drawGround(ctx, pointAt, leftWorld, rightWorld, halfWidth) {
+        for (let wx = Math.floor(leftWorld); wx <= Math.ceil(rightWorld); wx += 0.5) {
+            this.drawSegment(pointAt(wx, -halfWidth, -0.22), pointAt(wx, halfWidth, -0.22), "rgba(0,0,0,0.05)", 1);
+        }
+        for (let offset = -halfWidth; offset <= halfWidth; offset += 0.25) {
+            this.drawSegment(pointAt(leftWorld, offset, -0.22), pointAt(rightWorld, offset, -0.22), "rgba(0,0,0,0.045)", 1);
+        }
+    }
+
+    drawRailPair(pointAt, xPoints, gap, color) {
+        if (!xPoints || xPoints.length < 2) return;
+        for (let index = 0; index < xPoints.length - 1; index += 1) {
+            const xStart = xPoints[index];
+            const xEnd = xPoints[index + 1];
+            if (xEnd <= xStart) continue;
+            this.drawSegment(pointAt(xStart, -gap / 2), pointAt(xEnd, -gap / 2), color, 3);
+            this.drawSegment(pointAt(xStart, gap / 2), pointAt(xEnd, gap / 2), color, 3);
+        }
+    }
+
+    drawRod(ctx, phy, pointAt, x, visualL, colors, label, velocity, forceExt, mass, isRod1, maxGap) {
+        const p = phy.p;
+        const thetaLocal = getTrackAngleAt(x, p.profileStart, p.segmentLength, p.segmentAnglesRad);
+        const halfGap = visualL / 2;
+        const halfThickness = 0.05;
+        const height = 0.14;
+        const a = pointAt(x - halfThickness, -halfGap, 0);
+        const b = pointAt(x + halfThickness, -halfGap, 0);
+        const c = pointAt(x + halfThickness, halfGap, 0);
+        const d = pointAt(x - halfThickness, halfGap, 0);
+        const e = pointAt(x - halfThickness, -halfGap, height);
+        const f = pointAt(x + halfThickness, -halfGap, height);
+        const g = pointAt(x + halfThickness, halfGap, height);
+        const h = pointAt(x - halfThickness, halfGap, height);
+        ctx.fillStyle = colors[1];
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(f.x, f.y); ctx.lineTo(e.x, e.y); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(c.x, c.y); ctx.lineTo(g.x, g.y); ctx.lineTo(h.x, h.y); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = colors[0];
+        ctx.beginPath(); ctx.moveTo(e.x, e.y); ctx.lineTo(f.x, f.y); ctx.lineTo(g.x, g.y); ctx.lineTo(h.x, h.y); ctx.closePath(); ctx.fill();
+        const labelPos = pointAt(x, 0, height + 0.16);
+        ctx.fillStyle = "#333";
+        ctx.font = "bold 11px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(label, labelPos.x, labelPos.y);
+
+        const drawTrackArrow = (startX, startY, startLift, value, factor, color, arrowLabel) => {
+            if (Math.abs(value) <= 0.01) return;
+            const delta = Math.min(Math.abs(value) * factor, 0.95) * Math.sign(value);
+            const s = pointAt(startX, startY, startLift);
+            const t = pointAt(startX + delta, startY, startLift);
+            this.drawArrow(ctx, s.x, s.y, t.x - s.x, t.y - s.y, color, arrowLabel);
+        };
+        drawTrackArrow(x, -halfGap - 0.18, height + 0.04, velocity, 0.12, this.colors.v, "v");
+        drawTrackArrow(x, halfGap + 0.18, height + 0.02, forceExt, 0.08, this.colors.F_ext, "F外");
+        const activeL = isRod1 ? (phy.stage === 2 ? p.L2 : p.L1) : p.L2;
+        const forceAmp = isRod1 ? -p.Bn * phy.s.I * activeL : p.Bn * phy.s.I * p.L2;
+        drawTrackArrow(x, 0, height + 0.26, forceAmp, 0.08, this.colors.F_amp, "F安");
+
+        const gStart = pointAt(x, halfGap * 0.55, height + 0.24);
+        const gEnd = pointAt(x, halfGap * 0.55, height - Math.min(mass * 0.12, 1.05));
+        this.drawArrow(ctx, gStart.x, gStart.y, gEnd.x - gStart.x, gEnd.y - gStart.y, this.colors.gravity, "mg");
+        if (Math.abs(Math.sin(thetaLocal)) > 1e-3) {
+            const s = pointAt(x, -halfGap * 0.55, height + 0.24);
+            const t = pointAt(x - Math.sin(thetaLocal) * 0.9, -halfGap * 0.55, height + 0.24);
+            this.drawArrow(ctx, s.x, s.y, t.x - s.x, t.y - s.y, this.colors.gravityComp, "mgsinθ");
+        }
+    }
+
+    drawDistanceMarker(ctx, pointAt, x1, x2, gap) {
+        const marker1 = pointAt(x1, gap / 2 + 0.36);
+        const marker2 = pointAt(x2, gap / 2 + 0.36);
+        this.drawSegment(pointAt(x1, 0), marker1, "#666", 1, [3, 3]);
+        this.drawSegment(pointAt(x2, 0), marker2, "#666", 1, [3, 3]);
+        this.drawSegment(marker1, marker2, "#666", 1.5);
+        ctx.fillStyle = "#555";
+        ctx.font = "11px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(`Δx = ${Math.abs(x2 - x1).toFixed(2)}m`, (marker1.x + marker2.x) / 2, (marker1.y + marker2.y) / 2 + 16);
+    }
+
+    drawSegment(p1, p2, color, width = 2, dash = []) {
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.setLineDash(dash);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawArrow(ctx, x, y, dx, dy, color, label) {
+        const len = Math.hypot(dx, dy);
+        if (len < 5) return;
+        const ux = dx / len;
+        const uy = dy / len;
+        const nx = -uy;
+        const ny = ux;
+        const endX = x + dx;
+        const endY = y + dy;
+
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 2;
+        ctx.moveTo(x, y);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(endX + ux * 2, endY + uy * 2);
+        ctx.lineTo(endX - ux * 7 + nx * 4, endY - uy * 7 + ny * 4);
+        ctx.lineTo(endX - ux * 7 - nx * 4, endY - uy * 7 - ny * 4);
+        ctx.fill();
+
+        ctx.font = "bold 10px Arial";
+        ctx.textAlign = ux >= 0 ? "left" : "right";
+        ctx.fillText(label, endX + ux * 8, endY + uy * 8);
+    }
+
+    drawThetaMarker(ctx, origin, theta, theta1, theta2, segmentCount = 1) {
+        ctx.save();
+        ctx.strokeStyle = "#90A4AE";
+        ctx.fillStyle = "#607D8B";
+        ctx.lineWidth = 1.5;
+        ctx.font = "11px Arial";
+        if (segmentCount <= 1 && Math.abs(theta) > 1e-3) {
+            ctx.beginPath();
+            ctx.moveTo(origin.x, origin.y);
+            ctx.lineTo(origin.x + 34, origin.y);
+            ctx.moveTo(origin.x, origin.y);
+            ctx.lineTo(origin.x + Math.cos(theta) * 34, origin.y - Math.sin(theta) * 34);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(origin.x, origin.y, 26, -theta, 0);
+            ctx.stroke();
+            ctx.fillText(`θ=${(theta * 180 / Math.PI).toFixed(0)}°`, origin.x + 40, origin.y - 8);
+        } else {
+            ctx.fillText(`θ1=${(theta1 * 180 / Math.PI).toFixed(0)}°`, origin.x - 6, origin.y - 6);
+            ctx.fillText(`θ2=${(theta2 * 180 / Math.PI).toFixed(0)}°`, origin.x - 6, origin.y + 10);
+            ctx.fillText(`N=${segmentCount}`, origin.x + 32, origin.y + 2);
+        }
+        ctx.restore();
+    }
+}
+
+class Physics {
+    constructor() { this.reset(); }
+
+    reset() {
+        this.t = 0;
+        this.Q_total = 0;
+        this.stage = 1;
+        this.crossData = null;
+
+        const get = id => parseFloat(document.getElementById(id).value) || 0;
+        const splitRatio = get('p_splitRatio');
+        const phiDeg = get('p_phi');
+        const segmentCount = getDualSegmentCount();
+        const segmentLength = Math.max(0.2, get('p_seg_len') || 2);
+        const segmentAnglesDeg = readDualSegmentAngles();
+
+        this.p = {
+            B: get('p_B'),
+            phiDeg,
+            phiRad: degToRad(phiDeg),
+            segmentCount,
+            segmentLength,
+            segmentAnglesDeg,
+            segmentAnglesRad: segmentAnglesDeg.map(degToRad),
+            dist0: get('p_dist0'),
+            splitRatio,
+            L1: get('p_L1'), m1: get('p_m1'), R1: get('p_R1'), v1: get('p_v1'), F1: get('p_F1'),
+            L2: get('p_L2'), m2: get('p_m2'), R2: get('p_R2'), v2: get('p_v2'), F2: get('p_F2'),
+            g: G,
+            collide: document.getElementById('chk_collide').checked
+        };
+        this.p.Bn = this.p.B * Math.cos(this.p.phiRad);
+
+        this.x1 = -this.p.dist0 / 2;
+        this.x2 = this.p.dist0 / 2;
+        this.p.profileStart = this.x1;
+        this.p.thetaDeg = this.p.segmentAnglesDeg[0] || 0;
+        this.p.thetaRad = this.p.segmentAnglesRad[0] || 0;
+        this.p.splitX = this.x1 + this.p.splitRatio * this.p.dist0;
+
+        if (this.x1 >= this.p.splitX) {
+            this.stage = 2;
+        }
+
+        this.s = { v1: this.p.v1, v2: this.p.v2, I: 0 };
+        this.history = { t: [], v1: [], v2: [], a1: [], I: [], Q: [] };
+    }
+
+    estimateMaxTime() {
+        const p = this.p;
+        const bnAbs = Math.abs(p.Bn);
+        const tau1 = (bnAbs * p.L1 > 0) ? (p.m1 * (p.R1 + p.R2)) / (bnAbs * p.L1) ** 2 : 1;
+        const tau2 = (bnAbs * p.L2 > 0) ? (p.m2 * (p.R1 + p.R2)) / (bnAbs * p.L2) ** 2 : 1;
+        let tMax = Math.max(tau1, tau2) * 5;
+        if (p.v1 > p.v2) {
+            const dv = p.v1 - p.v2;
+            if (dv > 0.1) {
+                const tCol = p.dist0 / dv;
+                if (tCol < tMax) tMax = tCol * 2;
+            }
+        }
+        return Math.min(Math.max(tMax, 2.0), 30.0);
+    }
+
+    getBounds() {
+        const p = this.p;
+        const bnAbs = Math.abs(p.Bn);
+        let maxV = Math.max(Math.abs(p.v1), Math.abs(p.v2), 1);
+        if (p.F1 && bnAbs * p.L1 > 1e-6) maxV = Math.max(maxV, Math.abs(p.F1) * (p.R1 + p.R2) / (bnAbs * p.L1) ** 2);
+        if (p.F2 && bnAbs * p.L2 > 1e-6) maxV = Math.max(maxV, Math.abs(p.F2) * (p.R1 + p.R2) / (bnAbs * p.L2) ** 2);
+
+        const vB = Math.ceil(maxV * 1.6);
+        const iB = Math.ceil((bnAbs * Math.max(p.L1, p.L2) * vB) / Math.max(p.R1 + p.R2, 1e-6) * 1.2) || 1;
+        const gravityTerm = p.g * Math.max(...p.segmentAnglesRad.map(angle => Math.abs(Math.sin(angle))), 0);
+        const aBase = ((bnAbs * iB * Math.max(p.L1, p.L2) + Math.max(Math.abs(p.F1), Math.abs(p.F2))) / Math.max(Math.min(p.m1, p.m2), 0.05)) + gravityTerm;
+        const aB = Math.max(1, Math.ceil(aBase * 1.2));
+        return { v: vB, I: iB, a: aB };
+    }
+
+    step(dt) {
+        const p = this.p;
+        const s = this.s;
+
+        if (this.stage === 1 && this.x1 >= p.splitX) {
+            this.stage = 2;
+            this.crossData = {
+                t: this.t,
+                x1: this.x1,
+                v1: s.v1,
+                x2: this.x2,
+                v2: s.v2,
+                I: s.I
+            };
+            console.log(`>>> Stage 2 Triggered! Ratio: ${p.splitRatio}, x=${p.splitX.toFixed(2)}`);
+            console.log("Initial Conditions for Stage 2:", this.crossData);
+        }
+
+        const activeL1 = this.stage === 2 ? p.L2 : p.L1;
+        const E = p.Bn * (activeL1 * s.v1 - p.L2 * s.v2);
+        const totalR = p.R1 + p.R2;
+        s.I = totalR > 1e-9 ? E / totalR : 0;
+
+        const Fa1 = -p.Bn * s.I * activeL1;
+        const Fa2 = p.Bn * s.I * p.L2;
+        const theta1 = getTrackAngleAt(this.x1, p.profileStart, p.segmentLength, p.segmentAnglesRad);
+        const theta2 = getTrackAngleAt(this.x2, p.profileStart, p.segmentLength, p.segmentAnglesRad);
+        this.theta1Local = theta1;
+        this.theta2Local = theta2;
+        const a1 = (p.F1 + Fa1 - p.m1 * p.g * Math.sin(theta1)) / p.m1;
+        const a2 = (p.F2 + Fa2 - p.m2 * p.g * Math.sin(theta2)) / p.m2;
+
+        s.v1 += a1 * dt;
+        s.v2 += a2 * dt;
+        this.x1 += s.v1 * dt;
+        this.x2 += s.v2 * dt;
+        this.t += dt;
+        this.Q_total += s.I ** 2 * totalR * dt;
+
+        if (p.collide && this.x1 >= this.x2) {
+            const v1 = s.v1;
+            const v2 = s.v2;
+            s.v1 = ((p.m1 - p.m2) * v1 + 2 * p.m2 * v2) / (p.m1 + p.m2);
+            s.v2 = ((p.m2 - p.m1) * v2 + 2 * p.m1 * v1) / (p.m1 + p.m2);
+            const m = (this.x1 + this.x2) / 2;
+            this.x1 = m - 0.01;
+            this.x2 = m + 0.01;
+        }
+
+        if (this.history.t.length < 1000) {
+            this.history.t.push(this.t);
+            this.history.v1.push(s.v1);
+            this.history.v2.push(s.v2);
+            this.history.a1.push(a1);
+            this.history.I.push(s.I);
+            this.history.Q.push(this.Q_total);
+        }
+    }
+}
+
+const app = {
+    phy: new Physics(),
+    renderer: new Renderer('sim'),
+    timer: null,
+    
+    start: () => { if(!app.timer) app.loop(); },
+    pause: () => { cancelAnimationFrame(app.timer); app.timer = null; },
+    reset: () => { app.pause(); app.phy.reset(); app.updateCharts(true); app.renderer.draw(app.phy); app.updateUI(); },
+    applyParams: () => { app.reset(); }, 
+
+    loop: () => {
+        const spd = parseFloat(document.getElementById('sim_speed').value)||1;
+        for(let i=0; i<4; i++) app.phy.step(0.01*spd/4);
+        app.renderer.draw(app.phy);
+        app.updateUI();
+        app.updateCharts();
+        app.timer = requestAnimationFrame(app.loop);
+    },
+
+    updateUI: () => {
+        const s = app.phy.s; const p = app.phy.p;
+        document.getElementById('val_t').innerText = app.phy.t.toFixed(2)+" s";
+        document.getElementById('val_v1').innerText = s.v1.toFixed(2);
+        document.getElementById('val_v2').innerText = s.v2.toFixed(2);
+        document.getElementById('val_I').innerText = s.I.toFixed(3)+" A";
+        document.getElementById('val_dist').innerText = Math.abs(app.phy.x2-app.phy.x1).toFixed(2)+" m";
+        
+        const elStage = document.getElementById('val_stage');
+        if(app.phy.stage === 1) {
+            elStage.innerText = "宽轨阶段";
+            elStage.className = "status-badge status-1";
+        } else {
+            elStage.innerText = "窄轨/接触";
+            elStage.className = "status-badge status-2";
+        }
+    },
+
+    charts: {},
+    initCharts: () => {
+        if (typeof Chart === 'undefined') return;
+        const opts = { 
+            animation: false, maintainAspectRatio: false, responsive: true,
+            plugins: { legend: { display: false }, title: { display: true, font: {size:11} } },
+            elements: { point: { radius: 0 }, line: { borderWidth: 2 } },
+            scales: { 
+                x: { type: 'linear', display: true, title: {display:true, text:'t/s'}, ticks: {maxTicksLimit: 6} },
+                y: { ticks: { font: {size: 10} } } 
+            }
+        };
+        const mk = (id, tit, col) => new Chart(document.getElementById(id), {
+            type: 'line', data: { datasets: [{ borderColor: col, data: [] }] },
+            options: { ...opts, plugins: { ...opts.plugins, title: { text: tit } } }
+        });
+        app.charts.v = new Chart(document.getElementById('c_v'), {
+            type: 'line', data: { datasets: [{label:'v1', borderColor:'#2196F3', data:[]}, {label:'v2', borderColor:'#E91E63', data:[]}] },
+            options: { ...opts, plugins: { ...opts.plugins, title: { text: '速度 (m/s)' } } }
+        });
+        app.charts.a = mk('c_a', '加速度 a1 (m/s²)', '#FF9800');
+        app.charts.I = mk('c_I', '电流 I (A)', '#6f42c1');
+        app.charts.E = mk('c_E', '焦耳热 Q (J)', '#795548');
+    },
+
+    updateCharts: (clear=false) => {
+        if(!app.charts.v) app.initCharts();
+        if(!app.charts.v) return;
+        
+        if(clear) {
+            const b = app.phy.getBounds();
+            const tMax = app.phy.estimateMaxTime(); 
+            
+            const setAx = (c, yMax, yMin) => {
+                c.options.scales.x.max = tMax; 
+                c.options.scales.x.min = 0;
+                if(yMax !== undefined) {
+                    c.options.scales.y.max = yMax;
+                    c.options.scales.y.min = yMin !== undefined ? yMin : -yMax;
+                }
+            };
+
+            setAx(app.charts.v, b.v);
+            setAx(app.charts.a, b.a);
+            setAx(app.charts.I, b.I);
+            setAx(app.charts.E); 
+        }
+
+        const h = app.phy.history;
+        if(h.t.length === 0 && !clear) return;
+        
+        const zip = (arr) => arr.map((v, i) => ({x: h.t[i], y: v}));
+        
+        const up = (c, ...d) => {
+            if(clear) c.data.datasets.forEach(ds => ds.data = []);
+            else d.forEach((arr, i) => c.data.datasets[i].data = zip(arr));
+            c.update('none');
+        };
+
+        up(app.charts.v, h.v1, h.v2);
+        up(app.charts.a, h.a1);
+        up(app.charts.I, h.I);
+        up(app.charts.E, h.Q);
+    }
+};
+app.renderer.onViewChange = () => app.renderer.draw(app.phy);
+window.addEventListener('load', () => {
+    syncDualSegmentInputs();
+    Promise.resolve(window.__essentialDepsReady).finally(() => {
+        window.__optionalDepsReady?.catch?.(() => {});
+        app.applyParams();
+    });
+});
+</script>
+</body>
+</html>

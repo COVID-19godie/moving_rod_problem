@@ -1,0 +1,1275 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>电磁感应仿真 - 移动端适配版</title>
+    
+    <script>
+    window.MathJax = {
+      tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+      svg: { fontCache: 'global' }
+    };
+    </script>
+    <script>
+    (function() {
+      const CDN_SOURCES = {
+        chartJs: [
+          "./local_libs/Chart.js@3.9.1/chart.min.js",
+          "https://cdn.staticfile.net/Chart.js/3.9.1/chart.min.js",
+          "https://lib.baomitu.com/Chart.js/3.9.1/chart.min.js",
+          "https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js",
+          "https://unpkg.com/chart.js@3.9.1/dist/chart.min.js"
+        ],
+        mathJax: [
+          "./local_libs/mathjax@3.2.2/tex-mml-chtml.js",
+          "https://cdn.staticfile.net/mathjax/3.2.2/es5/tex-mml-chtml.js",
+          "https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js",
+          "https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js"
+        ]
+      };
+
+      function loadScriptWithFallback(name, urls, check) {
+        return new Promise((resolve, reject) => {
+          const exists = typeof check === "function" ? check : () => false;
+          if (exists()) return resolve("already-loaded");
+
+          const tryLoad = index => {
+            if (index >= urls.length) {
+              reject(new Error(name + " load failed from all sources"));
+              return;
+            }
+            const script = document.createElement("script");
+            script.src = urls[index];
+            script.async = true;
+            script.onload = () => {
+              console.info("[asset]", name, "loaded from", urls[index]);
+              resolve(urls[index]);
+            };
+            script.onerror = () => {
+              console.warn("[asset]", name, "failed from", urls[index]);
+              script.remove();
+              tryLoad(index + 1);
+            };
+            document.head.appendChild(script);
+          };
+
+          tryLoad(0);
+        });
+      }
+
+      window.__assetLoader = {
+        state: { chartDone: false },
+        loadScriptWithFallback
+      };
+
+      window.__essentialDepsReady = loadScriptWithFallback("Chart.js", CDN_SOURCES.chartJs, () => typeof window.Chart !== "undefined")
+        .catch(error => {
+          console.error("[asset] Chart.js unavailable:", error.message);
+          return null;
+        })
+        .finally(() => {
+          window.__assetLoader.state.chartDone = true;
+        });
+
+      window.__optionalDepsReady = loadScriptWithFallback("MathJax", CDN_SOURCES.mathJax, () => typeof window.MathJax?.typesetPromise === "function")
+        .catch(error => {
+          console.warn("[asset] MathJax unavailable:", error.message);
+          return null;
+        });
+    })();
+    </script>
+    
+    <style>
+        :root {
+            --primary-color: #2196F3;
+            --bg-color: #f2f4f8;
+            --panel-bg: #ffffff;
+            --text-color: #333;
+            --border-color: #dee2e6;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+            -webkit-tap-highlight-color: transparent; /* 移除点击高亮 */
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            height: 100vh;
+            overflow: hidden;
+            position: relative; /* 为绝对定位元素提供基准 */
+        }
+
+        /* --- 左侧控制面板 (桌面端样式) --- */
+        .controls-panel {
+            width: 260px;
+            background-color: var(--panel-bg);
+            padding: 10px;
+            overflow-y: auto;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 2px 0 8px rgba(0,0,0,0.03);
+            z-index: 20;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* 移动端遮罩层 */
+        .panel-overlay {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 15;
+            backdrop-filter: blur(2px);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        /* 移动端菜单按钮 */
+        .mobile-menu-btn {
+            display: none; /* 桌面端隐藏 */
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 12; /* 高于 display-area 但低于 panel */
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        /* 面板内部关闭按钮 (仅移动端显示) */
+        .panel-close-btn {
+            display: none;
+            background: #f1f3f5;
+            border: none;
+            padding: 8px;
+            text-align: center;
+            border-radius: 4px;
+            color: #666;
+            font-weight: bold;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+
+        .control-group {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+
+        .control-group h3 {
+            margin: 0 0 8px 0;
+            font-size: 0.9rem;
+            color: #495057;
+            font-weight: 700;
+            border-left: 3px solid var(--primary-color);
+            padding-left: 8px;
+        }
+
+        .input-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        
+        .input-row label { font-size: 0.85rem; color: #666; }
+        .segment-editor {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .segment-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .segment-row label {
+            font-size: 0.82rem;
+            color: #666;
+        }
+
+        input[type="number"] {
+            width: 60px;
+            padding: 4px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            text-align: right;
+            font-size: 0.9rem;
+            /* 移动端防止输入框缩放 */
+            font-size: 16px; 
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 5px;
+        }
+
+        button {
+            padding: 10px 0; /* 增加点击区域 */
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            color: white;
+            font-size: 0.95rem;
+        }
+        .btn-start { background-color: #28a745; }
+        .btn-pause { background-color: #ffc107; color: #333; }
+        .btn-reset { background-color: #dc3545; }
+
+        .formula-box {
+            font-size: 0.8rem;
+            color: #666;
+            background: #fff;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: auto;
+            border: 1px solid #e9ecef;
+            line-height: 1.5;
+        }
+
+        /* --- 右侧显示区 --- */
+        .display-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 10px;
+            gap: 10px;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            width: 100%; /* 确保在移动端占满宽度 */
+        }
+
+        .canvas-container {
+            flex: 0.6; /* 默认比例 */
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            position: relative;
+            min-height: 200px; /* 保证最小高度 */
+            border: 1px solid #e0e0e0;
+        }
+
+        canvas#simCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: grab;
+            touch-action: none;
+        }
+
+        .data-overlay {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(255, 255, 255, 0.92);
+            padding: 8px 10px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+            font-family: Consolas, monospace;
+            font-size: 11px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            pointer-events: none;
+            color: #333;
+            max-width: 120px;
+        }
+
+        .charts-container {
+            flex: 1; 
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 8px;
+            min-height: 0;
+            overflow-y: auto; /* 允许图表区内部滚动（如果需要） */
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 100%;
+            width: 100%;
+            background: white;
+            border-radius: 6px;
+            padding: 5px; 
+            border: 1px solid #e0e0e0;
+            box-sizing: border-box;
+            min-height: 120px; /* 图表最小高度 */
+        }
+
+        /* --- 移动端适配 (断点：768px) --- */
+        @media (max-width: 768px) {
+            .mobile-menu-btn { display: block; }
+            .panel-close-btn { display: block; }
+
+            .controls-panel {
+                position: absolute;
+                left: 0;
+                top: 0;
+                bottom: 0;
+                width: 85%; /* 抽屉宽度 */
+                max-width: 320px;
+                transform: translateX(-100%); /* 默认隐藏到左侧 */
+                box-shadow: none; /* 隐藏时去掉阴影 */
+            }
+
+            .controls-panel.active {
+                transform: translateX(0); /* 滑出 */
+                box-shadow: 4px 0 15px rgba(0,0,0,0.2);
+            }
+
+            .panel-overlay.active {
+                display: block;
+                opacity: 1;
+            }
+
+            /* 移动端布局调整 */
+            .display-area {
+                padding: 5px;
+                gap: 5px;
+            }
+            
+            .canvas-container {
+                flex: 0 0 auto; /* 不自动伸缩 */
+                height: 40vh; /* 固定占据屏幕40%高度 */
+                min-height: 220px;
+            }
+
+            .data-overlay {
+                font-size: 10px;
+                padding: 6px;
+                top: 40px; /* 避开左上角的设置按钮 */
+                right: 5px;
+            }
+
+            .charts-container {
+                flex: 1;
+                /* 竖屏时改为单列布局，横屏时保持双列 */
+                grid-template-columns: 1fr; 
+                grid-template-rows: repeat(4, 1fr);
+                gap: 6px;
+            }
+
+            .chart-wrapper {
+                min-height: 0; /* 允许被压缩 */
+            }
+        }
+        
+        /* 横屏模式特别优化 */
+        @media (max-width: 900px) and (orientation: landscape) {
+            .canvas-container { height: 100%; flex: 1; }
+            .charts-container { display: none; /* 手机横屏时空间太小，暂时隐藏图表，专注看仿真 */ }
+            /* 或者你可以选择把图表放在右侧，但手机横屏高度不够 */
+        }
+    </style>
+
+<!-- Font Awesome 多源CDN -->
+<!-- Font Awesome 多源CDN -->
+</head>
+<body>
+
+<div class="main-container">
+    <div class="panel-overlay" id="panelOverlay" onclick="togglePanel()"></div>
+
+    <button class="mobile-menu-btn" onclick="togglePanel()">⚙️ 参数设置</button>
+
+    <div class="controls-panel" id="controlsPanel">
+        <button class="panel-close-btn" onclick="togglePanel()">收起面板 ✕</button>
+        
+        <div class="btn-group">
+            <button class="btn-start" onclick="sim.start(); togglePanel(false);">开始</button>
+            <button class="btn-pause" onclick="sim.pause()">暂停</button>
+            <button class="btn-reset" onclick="sim.reset()" style="grid-column: span 2;">重置</button>
+        </div>
+
+        <div class="control-group">
+            <h3>环境参数</h3>
+            <div class="input-row"><label>磁感应强度 B (T)</label><input type="number" id="param_B" value="1.0" step="0.1" onchange="sim.updateParams()"></div>
+            <div class="input-row"><label>导轨间距 L (m)</label><input type="number" id="param_L" value="1.0" step="0.1" onchange="sim.updateParams()"></div>
+            <div class="input-row"><label>第1段角 θ1 (deg)</label><input type="number" id="param_theta" value="0.0" step="1" onchange="sim.updateParams()"></div>
+            <div class="input-row"><label>磁场方向角 φ (deg)</label><input type="number" id="param_phi" value="0.0" step="1" onchange="sim.updateParams()"></div>
+            <div class="input-row"><label>分段数 N</label><input type="number" id="param_seg_count" value="1" min="1" max="6" step="1" onchange="syncSingleSegmentInputs(); window.sim?.updateParams()"></div>
+            <div class="input-row"><label>每段长度 d (m)</label><input type="number" id="param_seg_len" value="2.0" min="0.2" step="0.1" onchange="sim.updateParams()"></div>
+            <div id="singleSegmentEditor" class="segment-editor"></div>
+        </div>
+
+        <div class="control-group">
+            <h3>电路参数</h3>
+            <div class="input-row"><label>外电阻 R (Ω)</label><input type="number" id="param_R" value="2.0" step="0.1" onchange="sim.updateParams()"></div>
+            <div class="input-row"><label>棒内阻 r (Ω)</label><input type="number" id="param_r" value="0.5" step="0.1" onchange="sim.updateParams()"></div>
+            <div class="input-row"><label>电源电压 U (V)</label><input type="number" id="param_U" value="1.0" step="0.1" onchange="sim.updateParams()"></div>
+        </div>
+
+        <div class="control-group">
+            <h3>动力学参数</h3>
+            <div class="input-row"><label>恒外力 F (N)</label><input type="number" id="param_F" value="2.0" step="0.1" onchange="sim.updateParams()"></div>
+            <div class="input-row"><label>棒质量 m (kg)</label><input type="number" id="param_m" value="1.0" step="0.1" onchange="sim.updateParams()"></div>
+            <div class="input-row"><label>初速度 v0 (m/s)</label><input type="number" id="param_v0" value="0.0" step="0.1" onchange="sim.updateParams()"></div>
+        </div>
+
+        <div class="formula-box">
+            <div style="font-weight:bold; margin-bottom:4px">核心公式:</div>
+            <div>$B_n = B\cos\varphi$</div>
+            <div>$E_{感} = B_nLv = BLv\cos\varphi$</div>
+            <div>$I_{棒} = \frac{E_{感} - U}{R+r}$</div>
+            <div>$F_{安} = B_nI_{棒}L$</div>
+            <div>$a = \frac{F_{外} - F_{安} - mg\sin\theta(x)}{m}$</div>
+        </div>
+    </div>
+
+    <div class="display-area">
+        <div class="canvas-container">
+            <canvas id="simCanvas"></canvas>
+            <div class="data-overlay">
+                <div>t = <span id="val_t">0.00</span> s</div>
+                <div>x = <span id="val_x">0.00</span> m</div>
+                <div>v = <span id="val_v" style="color:#28a745">0.00</span> m/s</div>
+                <div>a = <span id="val_a" style="color:#dc3545">0.00</span> m/s²</div>
+                <div>I = <span id="val_I" style="color:#6f42c1">0.00</span> A</div>
+            </div>
+        </div>
+
+        <div class="charts-container">
+            <div class="chart-wrapper"><canvas id="chart_v"></canvas></div>
+            <div class="chart-wrapper"><canvas id="chart_x"></canvas></div>
+            <div class="chart-wrapper"><canvas id="chart_a"></canvas></div>
+            <div class="chart-wrapper"><canvas id="chart_I"></canvas></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// --- 移动端面板控制逻辑 ---
+function togglePanel(forceState) {
+    const panel = document.getElementById('controlsPanel');
+    const overlay = document.getElementById('panelOverlay');
+    
+    const isOpen = panel.classList.contains('active');
+    const shouldOpen = forceState !== undefined ? forceState : !isOpen;
+
+    if (shouldOpen) {
+        panel.classList.add('active');
+        overlay.classList.add('active');
+    } else {
+        panel.classList.remove('active');
+        overlay.classList.remove('active');
+    }
+}
+
+const G = 9.8;
+const degToRad = deg => deg * Math.PI / 180;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const MAX_SEGMENTS = 6;
+
+function getSegmentCount(inputId) {
+    const raw = parseInt(document.getElementById(inputId).value, 10);
+    return clamp(Number.isFinite(raw) ? raw : 1, 1, MAX_SEGMENTS);
+}
+
+function syncSingleSegmentInputs() {
+    const count = getSegmentCount('param_seg_count');
+    document.getElementById('param_seg_count').value = count;
+    const host = document.getElementById('singleSegmentEditor');
+    const previous = Array.from(host.querySelectorAll('input')).map(input => input.value);
+    host.innerHTML = '';
+    for (let index = 2; index <= count; index += 1) {
+        const row = document.createElement('div');
+        row.className = 'segment-row';
+        const label = document.createElement('label');
+        label.textContent = `第${index}段角 θ${index} (deg)`;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.id = `param_seg_angle_${index}`;
+        input.step = '1';
+        input.value = previous[index - 2] ?? document.getElementById('param_theta').value;
+        input.onchange = () => window.sim?.updateParams();
+        row.appendChild(label);
+        row.appendChild(input);
+        host.appendChild(row);
+    }
+}
+
+function readSingleSegmentAngles() {
+    const count = getSegmentCount('param_seg_count');
+    const anglesDeg = [];
+    for (let index = 1; index <= count; index += 1) {
+        const inputId = index === 1 ? 'param_theta' : `param_seg_angle_${index}`;
+        anglesDeg.push(parseFloat(document.getElementById(inputId)?.value) || 0);
+    }
+    return anglesDeg;
+}
+
+function getTrackSegmentIndex(x, profileStart, segmentLength, count) {
+    if (count <= 1 || segmentLength <= 1e-9) return 0;
+    if (x <= profileStart) return 0;
+    const idx = Math.floor((x - profileStart) / segmentLength);
+    return clamp(idx, 0, count - 1);
+}
+
+function getTrackAngleAt(x, profileStart, segmentLength, anglesRad) {
+    const idx = getTrackSegmentIndex(x, profileStart, segmentLength, anglesRad.length);
+    return anglesRad[idx] ?? 0;
+}
+
+function getTrackElevationAt(x, profileStart, segmentLength, anglesRad) {
+    if (!anglesRad.length) return 0;
+    if (x <= profileStart) {
+        return (x - profileStart) * Math.tan(anglesRad[0]);
+    }
+    let elevation = 0;
+    let cursor = profileStart;
+    for (let index = 0; index < anglesRad.length; index += 1) {
+        const angle = anglesRad[index];
+        const next = cursor + segmentLength;
+        if (x <= next) {
+            return elevation + (x - cursor) * Math.tan(angle);
+        }
+        elevation += segmentLength * Math.tan(angle);
+        cursor = next;
+    }
+    return elevation + (x - cursor) * Math.tan(anglesRad[anglesRad.length - 1]);
+}
+
+function getTrackBreakpoints(xMin, xMax, profileStart, segmentLength, count) {
+    const points = [xMin];
+    for (let index = 0; index <= count; index += 1) {
+        const x = profileStart + index * segmentLength;
+        if (x > xMin + 1e-6 && x < xMax - 1e-6) points.push(x);
+    }
+    points.push(xMax);
+    return points.sort((a, b) => a - b);
+}
+
+// --- 物理引擎 ---
+class PhysicsEngine {
+    constructor() { this.reset(); }
+    reset() {
+        this.t = 0; this.x = 0; this.a = 0; this.I = 0;
+        this.v = parseFloat(document.getElementById('param_v0').value) || 0;
+        this.history = { t: [], x: [], v: [], a: [], I: [] };
+        this.updateParams();
+    }
+    updateParams() {
+        const phiDeg = parseFloat(document.getElementById('param_phi').value) || 0;
+        const segmentCount = getSegmentCount('param_seg_count');
+        const segmentLength = Math.max(0.2, parseFloat(document.getElementById('param_seg_len').value) || 2);
+        const segmentAnglesDeg = readSingleSegmentAngles();
+        this.params = {
+            B: parseFloat(document.getElementById('param_B').value),
+            L: parseFloat(document.getElementById('param_L').value),
+            phiDeg,
+            phiRad: degToRad(phiDeg),
+            segmentCount,
+            segmentLength,
+            segmentAnglesDeg,
+            segmentAnglesRad: segmentAnglesDeg.map(degToRad),
+            profileStart: 0,
+            R: parseFloat(document.getElementById('param_R').value),
+            r: parseFloat(document.getElementById('param_r').value),
+            U: parseFloat(document.getElementById('param_U').value),
+            F: parseFloat(document.getElementById('param_F').value),
+            m: parseFloat(document.getElementById('param_m').value),
+            g: G,
+            dt: 0.02
+        };
+        this.params.thetaDeg = this.params.segmentAnglesDeg[0] || 0;
+        this.params.thetaRad = this.params.segmentAnglesRad[0] || 0;
+        this.params.Bn = this.params.B * Math.cos(this.params.phiRad);
+        this.thetaLocal = getTrackAngleAt(this.x, this.params.profileStart, this.params.segmentLength, this.params.segmentAnglesRad);
+    }
+    step() {
+        const p = this.params;
+        const E_induced = p.Bn * p.L * this.v;
+        const R_total = p.R + p.r;
+        this.I = R_total > 1e-9 ? (E_induced - p.U) / R_total : 0;
+        const F_amp = p.Bn * this.I * p.L;
+        this.thetaLocal = getTrackAngleAt(this.x, p.profileStart, p.segmentLength, p.segmentAnglesRad);
+        const gravityAlong = p.m * p.g * Math.sin(this.thetaLocal);
+        this.a = (p.F - F_amp - gravityAlong) / p.m;
+        this.v += this.a * p.dt;
+        this.x += this.v * p.dt;
+        this.t += p.dt;
+        if (this.history.t.length > 600) { ['t','x','v','a','I'].forEach(k => this.history[k].shift()); }
+        ['t','x','v','a','I'].forEach(k => this.history[k].push(this[k]));
+    }
+}
+
+class Renderer {
+    constructor(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        this.ctx = this.canvas.getContext('2d');
+        this.colors = {
+            wire: "#1565C0",
+            railTop: "#7B8B97",
+            railSide: "#55626C",
+            rodTop: "#FF8A5B",
+            rodSide: "#D84B1F",
+            forceF: "#FF5722",
+            forceAmp: "#6f42c1",
+            velocity: "#28a745",
+            gravity: "#455A64",
+            gravityComp: "#00897B",
+            bText: "#8E44AD"
+        };
+        this.view = {
+            angle: -0.72,
+            depth: 34,
+            pointerId: null,
+            lastX: 0,
+            lastY: 0
+        };
+        this.resize();
+        this.bindPointerEvents();
+        window.addEventListener('resize', () => { this.resize(); if(window.sim) window.sim.redraw(); });
+    }
+
+    resize() {
+        const p = this.canvas.parentElement;
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = p.clientWidth * dpr;
+        this.canvas.height = p.clientHeight * dpr;
+        this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        this.width = p.clientWidth;
+        this.height = p.clientHeight;
+        this.canvas.style.cursor = this.view.pointerId === null ? 'grab' : 'grabbing';
+    }
+
+    bindPointerEvents() {
+        const finish = pointerId => {
+            if (this.view.pointerId !== pointerId) return;
+            this.view.pointerId = null;
+            this.canvas.style.cursor = 'grab';
+            this.canvas.releasePointerCapture?.(pointerId);
+        };
+
+        this.canvas.addEventListener('pointerdown', event => {
+            if (event.button !== undefined && event.button !== 0) return;
+            this.view.pointerId = event.pointerId;
+            this.view.lastX = event.clientX;
+            this.view.lastY = event.clientY;
+            this.canvas.style.cursor = 'grabbing';
+            this.canvas.setPointerCapture?.(event.pointerId);
+        });
+
+        this.canvas.addEventListener('pointermove', event => {
+            if (this.view.pointerId !== event.pointerId) return;
+            const dx = event.clientX - this.view.lastX;
+            const dy = event.clientY - this.view.lastY;
+            this.view.lastX = event.clientX;
+            this.view.lastY = event.clientY;
+            this.view.angle += dx * 0.01;
+            this.view.depth = clamp(this.view.depth - dy * 0.22, 18, 58);
+            this.onViewChange?.();
+        });
+
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(type => {
+            this.canvas.addEventListener(type, event => finish(event.pointerId));
+        });
+    }
+
+    createCamera(targetX, targetZ) {
+        return {
+            target: { x: targetX, y: 0, z: targetZ },
+            originX: this.width * 0.52,
+            originY: this.height * 0.68,
+            scaleX: this.width < 600 ? 96 : 112,
+            scaleZ: this.width < 600 ? 74 : 86
+        };
+    }
+
+    toCamera(point, camera) {
+        const relX = point.x - camera.target.x;
+        const relY = point.y - camera.target.y;
+        const relZ = point.z - camera.target.z;
+        return {
+            x: relX * camera.scaleX,
+            y: relZ * camera.scaleZ + Math.sin(this.view.angle) * relY * this.view.depth,
+            z: relY * Math.cos(this.view.angle)
+        };
+    }
+
+    project(point, camera) {
+        const relX = point.x - camera.target.x;
+        const relY = point.y - camera.target.y;
+        const relZ = point.z - camera.target.z;
+        const depthX = Math.cos(this.view.angle) * relY * this.view.depth;
+        const depthY = Math.sin(this.view.angle) * relY * this.view.depth;
+        return {
+            x: camera.originX + relX * camera.scaleX + depthX,
+            y: camera.originY - relZ * camera.scaleZ - depthY,
+            depth: 1,
+            camZ: relY,
+            scale: 100
+        };
+    }
+
+    drawLine3D(a, b, camera, color, width = 1, dash = []) {
+        const p1 = this.project(a, camera);
+        const p2 = this.project(b, camera);
+        const ctx = this.ctx;
+        ctx.save();
+        ctx.setLineDash(dash);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    drawQuad3D(points, camera, fill, stroke = null) {
+        const projected = points.map(point => this.project(point, camera));
+        const ctx = this.ctx;
+        ctx.beginPath();
+        projected.forEach((point, index) => {
+            if (index === 0) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+        });
+        ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.fill();
+        if (stroke) {
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+    }
+
+    drawFaces(faces, camera) {
+        faces
+            .map(face => ({
+                ...face,
+                depth: face.points.reduce((sum, point) => sum + this.toCamera(point, camera).z, 0) / face.points.length
+            }))
+            .sort((a, b) => a.depth - b.depth)
+            .forEach(face => this.drawQuad3D(face.points, camera, face.fill, face.stroke));
+    }
+
+    makeRailPrism(x1, x2, yCenter, width, height, theta) {
+        const z1 = x1 * Math.tan(theta);
+        const z2 = x2 * Math.tan(theta);
+        const y1 = yCenter - width / 2;
+        const y2 = yCenter + width / 2;
+        return {
+            a: { x: x1, y: y1, z: z1 },
+            b: { x: x2, y: y1, z: z2 },
+            c: { x: x2, y: y2, z: z2 },
+            d: { x: x1, y: y2, z: z1 },
+            e: { x: x1, y: y1, z: z1 + height },
+            f: { x: x2, y: y1, z: z2 + height },
+            g: { x: x2, y: y2, z: z2 + height },
+            h: { x: x1, y: y2, z: z1 + height }
+        };
+    }
+
+    makeRodPrism(x, halfGap, theta, thicknessX = 0.08, thicknessZ = 0.14) {
+        const x1 = x - thicknessX / 2;
+        const x2 = x + thicknessX / 2;
+        const z1 = x1 * Math.tan(theta);
+        const z2 = x2 * Math.tan(theta);
+        return {
+            a: { x: x1, y: -halfGap, z: z1 },
+            b: { x: x2, y: -halfGap, z: z2 },
+            c: { x: x2, y: halfGap, z: z2 },
+            d: { x: x1, y: halfGap, z: z1 },
+            e: { x: x1, y: -halfGap, z: z1 + thicknessZ },
+            f: { x: x2, y: -halfGap, z: z2 + thicknessZ },
+            g: { x: x2, y: halfGap, z: z2 + thicknessZ },
+            h: { x: x1, y: halfGap, z: z1 + thicknessZ }
+        };
+    }
+
+    drawRail(camera, x1, x2, yCenter, theta) {
+        const prism = this.makeRailPrism(x1, x2, yCenter, 0.08, 0.05, theta);
+        this.drawFaces([
+            { points: [prism.e, prism.f, prism.g, prism.h], fill: this.colors.railTop, stroke: "rgba(255,255,255,0.15)" },
+            { points: [prism.a, prism.b, prism.f, prism.e], fill: this.colors.railSide },
+            { points: [prism.d, prism.c, prism.g, prism.h], fill: "#667580" }
+        ], camera);
+    }
+
+    drawRod(camera, rodX, halfGap, theta) {
+        const prism = this.makeRodPrism(rodX, halfGap, theta);
+        this.drawFaces([
+            { points: [prism.e, prism.f, prism.g, prism.h], fill: this.colors.rodTop, stroke: "rgba(255,255,255,0.2)" },
+            { points: [prism.a, prism.b, prism.f, prism.e], fill: this.colors.rodSide },
+            { points: [prism.d, prism.c, prism.g, prism.h], fill: "#EB6230" }
+        ], camera);
+        const labelPoint = this.project({ x: rodX, y: 0, z: rodX * Math.tan(theta) + 0.32 }, camera);
+        if (labelPoint.depth > 0) {
+            const ctx = this.ctx;
+            ctx.fillStyle = "#333";
+            ctx.font = "12px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("导体棒", labelPoint.x, labelPoint.y);
+        }
+    }
+
+    drawField(camera, x1, x2, halfGap, theta, bn) {
+        const z1 = x1 * Math.tan(theta);
+        const z2 = x2 * Math.tan(theta);
+        this.drawQuad3D([
+            { x: x1, y: -halfGap, z: z1 + 0.015 },
+            { x: x2, y: -halfGap, z: z2 + 0.015 },
+            { x: x2, y: halfGap, z: z2 + 0.015 },
+            { x: x1, y: halfGap, z: z1 + 0.015 }
+        ], camera, "rgba(111, 66, 193, 0.10)");
+
+        const ctx = this.ctx;
+        ctx.fillStyle = this.colors.bText;
+        ctx.font = "13px Arial";
+        ctx.textAlign = "center";
+        for (let x = x1 + 0.3; x < x2; x += 0.55) {
+            for (let y = -halfGap + 0.12; y < halfGap; y += 0.22) {
+                const mark = this.project({ x, y, z: x * Math.tan(theta) + 0.03 }, camera);
+                if (mark.depth > 0) ctx.fillText("×", mark.x, mark.y);
+            }
+        }
+        const label = this.project({ x: (x1 + x2) / 2, y: -halfGap - 0.18, z: ((x1 + x2) / 2) * Math.tan(theta) + 0.22 }, camera);
+        if (label.depth > 0) ctx.fillText(`Bn=${bn.toFixed(2)} T`, label.x, label.y);
+    }
+
+    drawGround(camera, x1, x2, halfWidth) {
+        for (let x = Math.floor(x1); x <= Math.ceil(x2); x += 0.5) {
+            this.drawLine3D({ x, y: -halfWidth, z: -0.3 }, { x, y: halfWidth, z: -0.3 }, camera, "rgba(0,0,0,0.06)", 1);
+        }
+        for (let y = -halfWidth; y <= halfWidth; y += 0.25) {
+            this.drawLine3D({ x: x1, y, z: -0.3 }, { x: x2, y, z: -0.3 }, camera, "rgba(0,0,0,0.05)", 1);
+        }
+    }
+
+    getTrackAngle(params, x) {
+        return getTrackAngleAt(x, params.profileStart, params.segmentLength, params.segmentAnglesRad);
+    }
+
+    getTrackElevation(params, x) {
+        return getTrackElevationAt(x, params.profileStart, params.segmentLength, params.segmentAnglesRad);
+    }
+
+    drawRailSection(camera, x1, x2, yCenter, z1, z2) {
+        const width = 0.08;
+        const height = 0.05;
+        const y1 = yCenter - width / 2;
+        const y2 = yCenter + width / 2;
+        const prism = {
+            a: { x: x1, y: y1, z: z1 },
+            b: { x: x2, y: y1, z: z2 },
+            c: { x: x2, y: y2, z: z2 },
+            d: { x: x1, y: y2, z: z1 },
+            e: { x: x1, y: y1, z: z1 + height },
+            f: { x: x2, y: y1, z: z2 + height },
+            g: { x: x2, y: y2, z: z2 + height },
+            h: { x: x1, y: y2, z: z1 + height }
+        };
+        this.drawFaces([
+            { points: [prism.e, prism.f, prism.g, prism.h], fill: this.colors.railTop, stroke: "rgba(255,255,255,0.15)" },
+            { points: [prism.a, prism.b, prism.f, prism.e], fill: this.colors.railSide },
+            { points: [prism.d, prism.c, prism.g, prism.h], fill: "#667580" }
+        ], camera);
+    }
+
+    drawSegmentedRails(camera, params, xMin, xMax, halfGap) {
+        const points = getTrackBreakpoints(xMin, xMax, params.profileStart, params.segmentLength, params.segmentCount);
+        for (let index = 0; index < points.length - 1; index += 1) {
+            const x1 = points[index];
+            const x2 = points[index + 1];
+            const z1 = this.getTrackElevation(params, x1);
+            const z2 = this.getTrackElevation(params, x2);
+            this.drawRailSection(camera, x1, x2, -halfGap, z1, z2);
+            this.drawRailSection(camera, x1, x2, halfGap, z1, z2);
+        }
+    }
+
+    drawSegmentedField(camera, params, xMin, xMax, halfGap) {
+        const points = getTrackBreakpoints(xMin, xMax, params.profileStart, params.segmentLength, params.segmentCount);
+        const polygon = [];
+        points.forEach(x => polygon.push({ x, y: -halfGap, z: this.getTrackElevation(params, x) + 0.015 }));
+        for (let index = points.length - 1; index >= 0; index -= 1) {
+            const x = points[index];
+            polygon.push({ x, y: halfGap, z: this.getTrackElevation(params, x) + 0.015 });
+        }
+        this.drawQuad3D(polygon, camera, "rgba(111, 66, 193, 0.10)");
+        const ctx = this.ctx;
+        ctx.fillStyle = this.colors.bText;
+        ctx.font = "13px Arial";
+        ctx.textAlign = "center";
+        for (let x = xMin + 0.3; x < xMax; x += 0.55) {
+            for (let y = -halfGap + 0.12; y < halfGap; y += 0.22) {
+                const mark = this.project({ x, y, z: this.getTrackElevation(params, x) + 0.03 }, camera);
+                ctx.fillText("×", mark.x, mark.y);
+            }
+        }
+        const midX = (xMin + xMax) / 2;
+        const label = this.project({ x: midX, y: -halfGap - 0.18, z: this.getTrackElevation(params, midX) + 0.22 }, camera);
+        ctx.fillText(`Bn=${params.Bn.toFixed(2)} T`, label.x, label.y);
+    }
+
+    drawSegmentedRod(camera, params, x, halfGap) {
+        const theta = this.getTrackAngle(params, x);
+        const zCenter = this.getTrackElevation(params, x);
+        const prism = this.makeRodPrism(x, halfGap, theta);
+        const zOffset = zCenter - x * Math.tan(theta);
+        const shiftedFaces = [
+            [prism.e, prism.f, prism.g, prism.h],
+            [prism.a, prism.b, prism.f, prism.e],
+            [prism.d, prism.c, prism.g, prism.h]
+        ].map(face => face.map(point => ({ ...point, z: point.z + zOffset })));
+        this.drawFaces([
+            { points: shiftedFaces[0], fill: this.colors.rodTop, stroke: "rgba(255,255,255,0.2)" },
+            { points: shiftedFaces[1], fill: this.colors.rodSide },
+            { points: shiftedFaces[2], fill: "#EB6230" }
+        ], camera);
+        const labelPoint = this.project({ x, y: 0, z: zCenter + 0.32 }, camera);
+        const ctx = this.ctx;
+        ctx.fillStyle = "#333";
+        ctx.font = "12px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("导体棒", labelPoint.x, labelPoint.y);
+    }
+
+    drawArrow3D(start, vec, camera, color, label) {
+        const end = { x: start.x + vec.x, y: start.y + vec.y, z: start.z + vec.z };
+        const p1 = this.project(start, camera);
+        const p2 = this.project(end, camera);
+        if (p1.depth <= 0 || p2.depth <= 0) return;
+        const ctx = this.ctx;
+        const dx = p2.x - p1.x;
+        const dy = p2.y - p1.y;
+        const len = Math.hypot(dx, dy);
+        if (len < 8) return;
+        const ux = dx / len;
+        const uy = dy / len;
+        const nx = -uy;
+        const ny = ux;
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = 2;
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(p2.x + ux * 2, p2.y + uy * 2);
+        ctx.lineTo(p2.x - ux * 8 + nx * 4, p2.y - uy * 8 + ny * 4);
+        ctx.lineTo(p2.x - ux * 8 - nx * 4, p2.y - uy * 8 - ny * 4);
+        ctx.fill();
+        ctx.font = "12px Arial";
+        ctx.textAlign = ux >= 0 ? "left" : "right";
+        ctx.fillText(label, p2.x + ux * 8, p2.y + uy * 8);
+    }
+
+    drawCircuitInset(ctx, params, w, h) {
+        const x = 16;
+        const y = h - 134;
+        ctx.save();
+        ctx.fillStyle = "rgba(255,255,255,0.93)";
+        ctx.strokeStyle = "rgba(21,96,192,0.18)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(x, y, 132, 100, 10);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "#495057";
+        ctx.font = "12px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText("外电路", x + 12, y + 18);
+        ctx.strokeStyle = this.colors.wire;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + 14, y + 40);
+        ctx.lineTo(x + 40, y + 40);
+        ctx.moveTo(x + 14, y + 76);
+        ctx.lineTo(x + 40, y + 76);
+        ctx.moveTo(x + 40, y + 40);
+        ctx.lineTo(x + 40, y + 76);
+        ctx.moveTo(x + 112, y + 40);
+        ctx.lineTo(x + 112, y + 76);
+        ctx.stroke();
+        this.drawResistorBox(ctx, x + 40, y + 58, params.R);
+        this.drawBatterySymbol(ctx, x + 92, y + 58, params.U);
+        ctx.fillStyle = "#666";
+        ctx.font = "11px Arial";
+        ctx.fillText(`L=${params.L.toFixed(1)} m`, x + 12, y + 92);
+        ctx.restore();
+    }
+
+    draw(state, params) {
+        const ctx = this.ctx;
+        const w = this.width;
+        const h = this.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const bg = ctx.createLinearGradient(0, 0, 0, h);
+        bg.addColorStop(0, "#f8fbff");
+        bg.addColorStop(1, "#e8eef5");
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        const baseTheta = params.thetaRad;
+        const halfGap = params.L / 2;
+        const spanLeft = Math.min(-1.2, state.x - 1.8);
+        const spanRight = Math.max(4.8, state.x + 2.8);
+        const focusX = clamp(state.x + 0.9, 1.0, spanRight - 1.1);
+        const focusZ = this.getTrackElevation(params, focusX) + 0.15;
+        const camera = this.createCamera(focusX, focusZ);
+        const thetaLocal = this.getTrackAngle(params, state.x);
+        const unitTrack = { x: Math.cos(thetaLocal), y: 0, z: Math.sin(thetaLocal) };
+        const rodCenter = { x: state.x, y: 0, z: this.getTrackElevation(params, state.x) + 0.08 };
+
+        this.drawGround(camera, spanLeft - 0.5, spanRight + 0.5, Math.max(halfGap + 0.8, 1.2));
+        this.drawSegmentedField(camera, params, spanLeft, spanRight, halfGap);
+        this.drawSegmentedRails(camera, params, spanLeft, spanRight, halfGap);
+        this.drawSegmentedRod(camera, params, state.x, halfGap);
+
+        if (Math.abs(params.F) > 0.01) {
+            const len = Math.min(Math.abs(params.F) * 0.38, 1.3) * Math.sign(params.F);
+            this.drawArrow3D(
+                { x: state.x, y: halfGap + 0.16, z: rodCenter.z + 0.08 },
+                { x: unitTrack.x * len, y: 0, z: unitTrack.z * len },
+                camera,
+                this.colors.forceF,
+                "F外"
+            );
+        }
+        if (Math.abs(state.v) > 0.01) {
+            const len = Math.min(Math.abs(state.v) * 0.35, 1.3) * Math.sign(state.v);
+            this.drawArrow3D(
+                { x: state.x, y: -halfGap - 0.18, z: rodCenter.z + 0.2 },
+                { x: unitTrack.x * len, y: 0, z: unitTrack.z * len },
+                camera,
+                this.colors.velocity,
+                "v"
+            );
+        }
+        const ampAlong = -params.Bn * state.I * params.L;
+        if (Math.abs(ampAlong) > 0.01) {
+            const len = Math.min(Math.abs(ampAlong) * 0.32, 1.15) * Math.sign(ampAlong);
+            this.drawArrow3D(
+                { x: state.x, y: 0, z: rodCenter.z + 0.33 },
+                { x: unitTrack.x * len, y: 0, z: unitTrack.z * len },
+                camera,
+                this.colors.forceAmp,
+                "F安"
+            );
+        }
+        this.drawArrow3D(
+            { x: state.x, y: halfGap * 0.55, z: rodCenter.z + 0.28 },
+            { x: 0, y: 0, z: -Math.min(params.m * params.g * 0.12, 1.15) },
+            camera,
+            this.colors.gravity,
+            "mg"
+        );
+        if (Math.abs(Math.sin(thetaLocal)) > 1e-3) {
+            this.drawArrow3D(
+                { x: state.x, y: -halfGap * 0.55, z: rodCenter.z + 0.28 },
+                { x: -unitTrack.x * Math.sin(thetaLocal) * 0.95, y: 0, z: -unitTrack.z * Math.sin(thetaLocal) * 0.95 },
+                camera,
+                this.colors.gravityComp,
+                "mgsinθ"
+            );
+        }
+
+        this.drawCircuitInset(ctx, params, w, h);
+        this.drawThetaMarker(ctx, { x: 84, y: h - 58 }, baseTheta, thetaLocal, params.segmentCount);
+
+        ctx.save();
+        ctx.fillStyle = "#687786";
+        ctx.font = "12px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText("拖动画面可调 2.5D 视角", 14, 22);
+        ctx.restore();
+
+        ctx.save();
+        ctx.font = "italic 11px 'Microsoft YaHei', sans-serif";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        const wmText = w < 600 ? "公众号: 戈悟志理琢瑷成器" : "南阳一中 张铭戈  公众号: 戈悟志理琢瑷成器";
+        ctx.fillText(wmText, w - 8, h - 5);
+        ctx.restore();
+    }
+
+    drawResistorBox(ctx, x, y, val) {
+        const w = 20;
+        const h = 40;
+        ctx.fillStyle = "#fff";
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.fillRect(x - w / 2, y - h / 2, w, h);
+        ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+        ctx.fillStyle = "#333";
+        ctx.textAlign = "center";
+        ctx.font = "11px Arial";
+        ctx.fillText(`R=${val}`, x - 22, y);
+    }
+
+    drawBatterySymbol(ctx, x, y, val) {
+        ctx.beginPath();
+        ctx.strokeStyle = "#333";
+        ctx.lineWidth = 2;
+        ctx.moveTo(x - 10, y - 5);
+        ctx.lineTo(x + 10, y - 5);
+        ctx.lineWidth = 3;
+        ctx.moveTo(x - 6, y + 5);
+        ctx.lineTo(x + 6, y + 5);
+        ctx.stroke();
+        ctx.font = "12px Arial";
+        ctx.fillStyle = "#333";
+        ctx.textAlign = "center";
+        ctx.fillText("+", x + 15, y - 4);
+        ctx.font = "11px Arial";
+        ctx.fillText(`U=${val}`, x - 25, y);
+    }
+
+    drawThetaMarker(ctx, origin, thetaDisplay, thetaLocal, segmentCount = 1) {
+        const theta = thetaDisplay;
+        ctx.save();
+        ctx.strokeStyle = "#90A4AE";
+        ctx.fillStyle = "#607D8B";
+        ctx.lineWidth = 1.5;
+        ctx.font = "11px Arial";
+        if (segmentCount <= 1 && Math.abs(theta) > 1e-3) {
+            ctx.beginPath();
+            ctx.moveTo(origin.x, origin.y);
+            ctx.lineTo(origin.x + 34, origin.y);
+            ctx.moveTo(origin.x, origin.y);
+            ctx.lineTo(origin.x + Math.cos(theta) * 34, origin.y - Math.sin(theta) * 34);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(origin.x, origin.y, 26, -theta, 0);
+            ctx.stroke();
+            ctx.fillText(`θ=${(theta * 180 / Math.PI).toFixed(0)}°`, origin.x + 40, origin.y - 8);
+        } else {
+            ctx.fillText(`当前段 θ=${(thetaLocal * 180 / Math.PI).toFixed(0)}°`, origin.x - 10, origin.y);
+            ctx.fillText(`N=${segmentCount}`, origin.x + 10, origin.y + 18);
+        }
+        ctx.restore();
+    }
+}
+
+class SimulationApp {
+    constructor() {
+        this.physics = new PhysicsEngine();
+        this.renderer = new Renderer('simCanvas');
+        this.renderer.onViewChange = () => this.redraw();
+        this.isRunning = false;
+        // 等待Chartjs加载完成后再初始化图表
+        this.waitForChart();
+    }
+    
+    waitForChart() {
+        if (typeof Chart !== 'undefined') {
+            this.initCharts();
+            this.redraw();
+            this.updateUI();
+            window.sim = this;
+        } else if (window.__assetLoader && window.__assetLoader.state.chartDone) {
+            this.redraw();
+            this.updateUI();
+            window.sim = this;
+        } else {
+            // 如果库还没加载完，每100ms检查一次
+            setTimeout(() => this.waitForChart(), 100);
+        }
+    }
+    
+    initCharts() {
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            layout: { padding: { left: 0, right: 10, top: 15, bottom: 0 } },
+            elements: { point: { radius: 0 }, line: { borderWidth: 2, tension: 0.3 } },
+            scales: { 
+                x: { display: true, ticks: { maxTicksLimit: 5, color: '#999', font:{size:10} }, grid: { display: false } },
+                y: { ticks: { color: '#999', font:{size:10} }, grid: { color: '#f1f1f1' } }
+            },
+            plugins: {
+                legend: { display: false },
+                title: { display: true, color: '#555', font: {size: 11, weight:'bold'}, padding: {bottom: 2} }
+            }
+        };
+
+        const mkChart = (id, title, color) => {
+            const opts = JSON.parse(JSON.stringify(commonOptions));
+            opts.plugins.title.text = title;
+            return new Chart(document.getElementById(id).getContext('2d'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ data: [], borderColor: color, borderWidth: 2, fill: false }] },
+                options: opts
+            });
+        };
+
+        this.charts = {
+            v: mkChart('chart_v', '速度 v (m/s)', '#28a745'),
+            x: mkChart('chart_x', '位移 x (m)', '#007bff'),
+            a: mkChart('chart_a', '加速度 a (m/s²)', '#dc3545'),
+            I: mkChart('chart_I', '电流 I (A)', '#6f42c1')
+        };
+    }
+    
+    updateParams() { this.physics.updateParams(); if (!this.isRunning) this.redraw(); }
+    start() { if (!this.isRunning) { this.isRunning = true; this.loop(); } }
+    pause() { this.isRunning = false; cancelAnimationFrame(this.raf); }
+    reset() { this.pause(); this.physics.reset(); this.updateCharts(true); this.updateUI(); this.redraw(); }
+    redraw() { this.renderer.draw(this.physics, this.physics.params); }
+    loop(ts) {
+        if (!this.isRunning) return;
+        this.physics.step(); this.updateUI(); this.redraw();
+        if (!this.lastChart || ts - this.lastChart > 80) { this.updateCharts(); this.lastChart = ts; }
+        this.raf = requestAnimationFrame((t) => this.loop(t));
+    }
+    updateUI() {
+        const p = this.physics;
+        document.getElementById('val_t').textContent = p.t.toFixed(2);
+        document.getElementById('val_x').textContent = p.x.toFixed(2);
+        document.getElementById('val_v').textContent = p.v.toFixed(2);
+        document.getElementById('val_a').textContent = p.a.toFixed(2);
+        document.getElementById('val_I').textContent = p.I.toFixed(3);
+    }
+    updateCharts(clear = false) {
+        if (!this.charts) return;
+        const h = this.physics.history;
+        const lbl = h.t.map(t => t.toFixed(1));
+        for(let k in this.charts) {
+            this.charts[k].data.labels = clear ? [] : lbl;
+            this.charts[k].data.datasets[0].data = clear ? [] : h[k];
+            this.charts[k].update('none');
+        }
+    }
+}
+window.addEventListener('load', () => {
+    syncSingleSegmentInputs();
+    Promise.resolve(window.__essentialDepsReady).finally(() => {
+        window.__optionalDepsReady?.catch?.(() => {});
+        new SimulationApp();
+    });
+});
+</script>
+</body>
+</html> 
