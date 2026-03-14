@@ -12,7 +12,16 @@ async function testSingleRod() {
   const simulation = await simulateMovingRodTool({
     scene: {
       model: "single_rod",
-      environment: { B: 0, phi_deg: 0, g: 9.8 },
+      environment: {
+        B: 0,
+        phi_deg: 0,
+        g: 9.8,
+        field_segments: [
+          { B: 0, phi_deg: 0, length: 1.5 },
+          { B: 0.5, phi_deg: 0, length: 1.5 },
+          { B: 1.0, phi_deg: 60, length: 1.5 }
+        ]
+      },
       track: {
         segments: [
           { angle_deg: 0, length: 1.5 },
@@ -34,6 +43,7 @@ async function testSingleRod() {
   const expectedA0 = -9.8 * Math.sin(Math.PI / 6) + 9.8 * mu * Math.cos(Math.PI / 6);
   assert.ok(Math.abs(simulation.history.a[0] - expectedA0) < 0.2, "single-rod acceleration should include kinetic friction");
   assert.ok(simulation.history.F_friction[0] > 0, "friction should oppose the downhill driving tendency");
+  assert.equal(simulation.history.Bn[0], 0.5, "single-rod should sample the local magnetic segment");
   const measure = await measureMovingRodTool({
     simulation,
     query: { type: "segment_at_position", position: 1.6 }
@@ -46,7 +56,17 @@ async function testDoubleRod() {
   const simulation = await simulateMovingRodTool({
     scene: {
       model: "double_rod",
-      environment: { B: 1.2, phi_deg: 90, g: 9.8 },
+      environment: {
+        B: 1.2,
+        phi_deg: 90,
+        g: 9.8,
+        field_profile_start: -1,
+        field_segments: [
+          { B: 1.2, phi_deg: 90, length: 1.2 },
+          { B: 2.0, phi_deg: 0, length: 1.2 },
+          { B: 0.8, phi_deg: 60, length: 1.2 }
+        ]
+      },
       track: {
         segments: [
           { angle_deg: 5, length: 1.2 },
@@ -67,7 +87,9 @@ async function testDoubleRod() {
 
   assert.equal(simulation.status, "PASS");
   assert.equal(simulation.summary.model, "double_rod");
-  assert.ok(Math.abs(simulation.summary.Bn) < 1e-9, "phi=90 deg should zero out Bn");
+  assert.ok(Math.abs(simulation.summary.Bn1_initial) < 1e-9, "rod1 initial field segment should zero out Bn");
+  assert.ok(Math.abs(simulation.summary.Bn2_initial - 2) < 1e-9, "rod2 should read a different initial magnetic segment");
+  assert.ok(simulation.history.Bn1[0] !== simulation.history.Bn2[0], "double-rod should use local field for each rod");
   assert.ok(simulation.summary.extrema.max_abs_friction_rod1 > 0, "double-rod run should record friction on rod1");
   const stageEvent = await measureMovingRodTool({
     simulation,
@@ -82,6 +104,7 @@ async function testSchema() {
   assert.ok(schema.scene_schema);
   assert.ok(schema.query_schema);
   assert.ok(schema.examples.single_rod);
+  assert.ok(schema.scene_schema.magnetic_field_profile);
 }
 
 async function main() {

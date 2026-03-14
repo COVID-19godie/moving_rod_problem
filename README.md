@@ -14,7 +14,8 @@ The local MCP does not try to write the final human derivation. It acts as a rel
 
 - single-rod motion on a segmented inclined track
 - double-rod motion with the current two-stage `splitX` logic
-- magnetic-field normal component `Bn = B cos(phi)`
+- magnetic-field normal component `Bn(x) = B(x) cos(phi(x))`
+- configurable magnetic field segments with different strengths in different regions
 - gravity along track using local segment angle `theta(x)`
 - configurable kinetic friction coefficient `mu_k`
 - optional elastic collision for the double-rod model

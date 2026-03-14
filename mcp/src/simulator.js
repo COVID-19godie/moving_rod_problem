@@ -113,6 +113,37 @@ function normalizeTrack(trackInput) {
   };
 }
 
+function normalizeMagneticProfile(environmentInput) {
+  const environment = asObject(environmentInput) || {};
+  const defaultLength = asPositiveNumber(environment.field_segment_length ?? environment.segment_length, 2);
+  const profileStart = asFiniteNumber(environment.field_profile_start ?? environment.profile_start, 0);
+  const fallbackB = asFiniteNumber(environment.B, 1);
+  const fallbackPhiDeg = asFiniteNumber(environment.phi_deg, 0);
+  const rawSegments = Array.isArray(environment.field_segments) && environment.field_segments.length > 0
+    ? environment.field_segments
+    : [{ B: fallbackB, phi_deg: fallbackPhiDeg, length: defaultLength }];
+
+  const segments = rawSegments.map((segment, index) => {
+    const item = asObject(segment) || {};
+    const phiDeg = asFiniteNumber(item.phi_deg ?? item.phi ?? fallbackPhiDeg, fallbackPhiDeg);
+    const B = asFiniteNumber(item.B ?? item.magnitude ?? fallbackB, fallbackB);
+    return {
+      index,
+      B,
+      phi_deg: phiDeg,
+      phi_rad: degToRad(phiDeg),
+      Bn: B * Math.cos(degToRad(phiDeg)),
+      length: asPositiveNumber(item.length, defaultLength)
+    };
+  });
+
+  return {
+    profile_start: profileStart,
+    default_segment_length: defaultLength,
+    segments
+  };
+}
+
 function getTrackSegmentIndex(x, track) {
   if (!track.segments.length) {
     return 0;
@@ -130,9 +161,35 @@ function getTrackSegmentIndex(x, track) {
   return track.segments.length - 1;
 }
 
+function getProfileSegmentIndex(x, profile) {
+  if (!profile?.segments?.length) {
+    return 0;
+  }
+  if (x <= profile.profile_start) {
+    return 0;
+  }
+  let cursor = profile.profile_start;
+  for (let index = 0; index < profile.segments.length - 1; index += 1) {
+    cursor += profile.segments[index].length;
+    if (x < cursor) {
+      return index;
+    }
+  }
+  return profile.segments.length - 1;
+}
+
 function getTrackAngleAt(x, track) {
   const index = getTrackSegmentIndex(x, track);
   return track.segments[index]?.angle_rad ?? 0;
+}
+
+function getMagneticSegmentIndex(x, fieldProfile) {
+  return getProfileSegmentIndex(x, fieldProfile);
+}
+
+function getMagneticFieldAt(x, fieldProfile) {
+  const index = getMagneticSegmentIndex(x, fieldProfile);
+  return fieldProfile?.segments?.[index] ?? { index: 0, B: 0, phi_deg: 0, phi_rad: 0, Bn: 0 };
 }
 
 function getTrackElevationAt(x, track) {
@@ -214,7 +271,8 @@ function normalizeSingleScene(scene, issues) {
       B: asFiniteNumber(environment.B, 1),
       phi_deg: asFiniteNumber(environment.phi_deg, 0),
       phi_rad: degToRad(environment.phi_deg),
-      g: asPositiveNumber(environment.g, DEFAULT_G)
+      g: asPositiveNumber(environment.g, DEFAULT_G),
+      magnetic_profile: normalizeMagneticProfile(environment)
     },
     track,
     rod: {
@@ -253,7 +311,8 @@ function normalizeDoubleScene(scene, issues) {
       B: asFiniteNumber(environment.B, 1),
       phi_deg: asFiniteNumber(environment.phi_deg, 0),
       phi_rad: degToRad(environment.phi_deg),
-      g: asPositiveNumber(environment.g, DEFAULT_G)
+      g: asPositiveNumber(environment.g, DEFAULT_G),
+      magnetic_profile: normalizeMagneticProfile(environment)
     },
     track,
     system: {
@@ -283,9 +342,8 @@ function normalizeDoubleScene(scene, issues) {
 }
 
 function simulateSingle(scene, solveOptions) {
-  const Bn = scene.environment.B * Math.cos(scene.environment.phi_rad);
   const totalR = scene.circuit.external_resistance + scene.rod.internal_resistance;
-  const history = makeSeriesStore(["t", "x", "v", "a", "I", "E_induced", "F_amp", "F_friction", "segment_index", "theta_deg"]);
+  const history = makeSeriesStore(["t", "x", "v", "a", "I", "E_induced", "F_amp", "F_friction", "segment_index", "theta_deg", "field_segment_index", "B", "phi_deg", "Bn"]);
   const events = [];
   let t = 0;
   let x = scene.dynamics.x0;
@@ -296,11 +354,14 @@ function simulateSingle(scene, solveOptions) {
   let ampForce = 0;
   let frictionForce = 0;
   let segmentIndex = getTrackSegmentIndex(x, scene.track);
+  let fieldSegmentIndex = getMagneticSegmentIndex(x, scene.environment.magnetic_profile);
 
-  pushEvent(events, "simulation_start", { t, x, v, segment_index: segmentIndex });
+  pushEvent(events, "simulation_start", { t, x, v, segment_index: segmentIndex, field_segment_index: fieldSegmentIndex });
 
   for (let step = 0; step <= solveOptions.max_steps && t <= solveOptions.t_end + 1e-12; step += 1) {
     const theta = getTrackAngleAt(x, scene.track);
+    const field = getMagneticFieldAt(x, scene.environment.magnetic_profile);
+    const Bn = field.Bn;
     const nextSegmentIndex = getTrackSegmentIndex(x, scene.track);
     if (nextSegmentIndex !== segmentIndex) {
       segmentIndex = nextSegmentIndex;
@@ -309,6 +370,18 @@ function simulateSingle(scene, solveOptions) {
         x,
         segment_index: segmentIndex,
         theta_deg: scene.track.segments[segmentIndex]?.angle_deg ?? 0
+      });
+    }
+    const nextFieldSegmentIndex = getMagneticSegmentIndex(x, scene.environment.magnetic_profile);
+    if (nextFieldSegmentIndex !== fieldSegmentIndex) {
+      fieldSegmentIndex = nextFieldSegmentIndex;
+      pushEvent(events, "field_enter", {
+        t,
+        x,
+        field_segment_index: fieldSegmentIndex,
+        B: field.B,
+        phi_deg: field.phi_deg,
+        Bn
       });
     }
 
@@ -340,7 +413,11 @@ function simulateSingle(scene, solveOptions) {
         F_amp: ampForce,
         F_friction: frictionForce,
         segment_index: segmentIndex,
-        theta_deg: scene.track.segments[segmentIndex]?.angle_deg ?? 0
+        theta_deg: scene.track.segments[segmentIndex]?.angle_deg ?? 0,
+        field_segment_index: fieldSegmentIndex,
+        B: field.B,
+        phi_deg: field.phi_deg,
+        Bn
       });
     }
   }
@@ -351,13 +428,14 @@ function simulateSingle(scene, solveOptions) {
     model: "single_rod",
     summary: {
       ...baseSummary({ model: "single_rod" }, scene.track, solveOptions),
-      Bn,
+      Bn_initial: getMagneticFieldAt(scene.dynamics.x0, scene.environment.magnetic_profile).Bn,
       total_resistance: totalR,
       final_state: { t, x, v, a, I: current, E_induced: inducedEmf, F_amp: ampForce, F_friction: frictionForce },
       extrema: {
         max_abs_current: Math.max(...history.I.map(value => Math.abs(value)), 0),
         max_speed: Math.max(...history.v.map(value => Math.abs(value)), 0),
         max_abs_friction: Math.max(...history.F_friction.map(value => Math.abs(value)), 0),
+        max_abs_Bn: Math.max(...history.Bn.map(value => Math.abs(value)), 0),
         min_x: Math.min(...history.x, x),
         max_x: Math.max(...history.x, x)
       }
@@ -368,7 +446,6 @@ function simulateSingle(scene, solveOptions) {
 }
 
 function simulateDouble(scene, solveOptions) {
-  const Bn = scene.environment.B * Math.cos(scene.environment.phi_rad);
   const totalR = scene.rod1.resistance + scene.rod2.resistance;
   const x1Start = -scene.system.dist0 / 2;
   const x2Start = scene.system.dist0 / 2;
@@ -376,7 +453,7 @@ function simulateDouble(scene, solveOptions) {
 
   scene.track.profile_start = x1Start;
 
-  const history = makeSeriesStore(["t", "x1", "x2", "v1", "v2", "a1", "a2", "I", "E", "Q_total", "stage", "distance", "theta1_deg", "theta2_deg", "F_friction1", "F_friction2"]);
+  const history = makeSeriesStore(["t", "x1", "x2", "v1", "v2", "a1", "a2", "I", "E", "Q_total", "stage", "distance", "theta1_deg", "theta2_deg", "F_friction1", "F_friction2", "field_segment_index1", "field_segment_index2", "B1", "B2", "phi1_deg", "phi2_deg", "Bn1", "Bn2"]);
   const events = [];
 
   let t = 0;
@@ -394,8 +471,10 @@ function simulateDouble(scene, solveOptions) {
   let stage = x1 >= splitX ? 2 : 1;
   let segment1 = getTrackSegmentIndex(x1, scene.track);
   let segment2 = getTrackSegmentIndex(x2, scene.track);
+  let fieldSegment1 = getMagneticSegmentIndex(x1, scene.environment.magnetic_profile);
+  let fieldSegment2 = getMagneticSegmentIndex(x2, scene.environment.magnetic_profile);
 
-  pushEvent(events, "simulation_start", { t, x1, x2, v1, v2, stage });
+  pushEvent(events, "simulation_start", { t, x1, x2, v1, v2, stage, field_segment_index1: fieldSegment1, field_segment_index2: fieldSegment2 });
   if (stage === 2) {
     pushEvent(events, "stage_change", { t, stage, reason: "rod1 started beyond splitX" });
   }
@@ -416,13 +495,17 @@ function simulateDouble(scene, solveOptions) {
     }
 
     const activeL1 = stage === 2 ? scene.rod2.length : scene.rod1.length;
-    E = Bn * (activeL1 * v1 - scene.rod2.length * v2);
+    const field1 = getMagneticFieldAt(x1, scene.environment.magnetic_profile);
+    const field2 = getMagneticFieldAt(x2, scene.environment.magnetic_profile);
+    const Bn1 = field1.Bn;
+    const Bn2 = field2.Bn;
+    E = Bn1 * activeL1 * v1 - Bn2 * scene.rod2.length * v2;
     I = totalR > 1e-9 ? E / totalR : 0;
 
     const theta1 = getTrackAngleAt(x1, scene.track);
     const theta2 = getTrackAngleAt(x2, scene.track);
-    const Fa1 = -Bn * I * activeL1;
-    const Fa2 = Bn * I * scene.rod2.length;
+    const Fa1 = -Bn1 * I * activeL1;
+    const Fa2 = Bn2 * I * scene.rod2.length;
     const gravity1 = scene.rod1.mass * scene.environment.g * Math.sin(theta1);
     const gravity2 = scene.rod2.mass * scene.environment.g * Math.sin(theta2);
     const normal1 = scene.rod1.mass * scene.environment.g * Math.cos(theta1);
@@ -464,6 +547,19 @@ function simulateDouble(scene, solveOptions) {
         theta_deg: scene.track.segments[segment1]?.angle_deg ?? 0
       });
     }
+    const nextFieldSegment1 = getMagneticSegmentIndex(x1, scene.environment.magnetic_profile);
+    if (nextFieldSegment1 !== fieldSegment1) {
+      fieldSegment1 = nextFieldSegment1;
+      pushEvent(events, "field_enter", {
+        rod: "rod1",
+        t,
+        x: x1,
+        field_segment_index: fieldSegment1,
+        B: field1.B,
+        phi_deg: field1.phi_deg,
+        Bn: field1.Bn
+      });
+    }
 
     const nextSegment2 = getTrackSegmentIndex(x2, scene.track);
     if (nextSegment2 !== segment2) {
@@ -474,6 +570,19 @@ function simulateDouble(scene, solveOptions) {
         x: x2,
         segment_index: segment2,
         theta_deg: scene.track.segments[segment2]?.angle_deg ?? 0
+      });
+    }
+    const nextFieldSegment2 = getMagneticSegmentIndex(x2, scene.environment.magnetic_profile);
+    if (nextFieldSegment2 !== fieldSegment2) {
+      fieldSegment2 = nextFieldSegment2;
+      pushEvent(events, "field_enter", {
+        rod: "rod2",
+        t,
+        x: x2,
+        field_segment_index: fieldSegment2,
+        B: field2.B,
+        phi_deg: field2.phi_deg,
+        Bn: field2.Bn
       });
     }
 
@@ -505,7 +614,15 @@ function simulateDouble(scene, solveOptions) {
         theta1_deg: scene.track.segments[segment1]?.angle_deg ?? 0,
         theta2_deg: scene.track.segments[segment2]?.angle_deg ?? 0,
         F_friction1: friction1,
-        F_friction2: friction2
+        F_friction2: friction2,
+        field_segment_index1: fieldSegment1,
+        field_segment_index2: fieldSegment2,
+        B1: field1.B,
+        B2: field2.B,
+        phi1_deg: field1.phi_deg,
+        phi2_deg: field2.phi_deg,
+        Bn1,
+        Bn2
       });
     }
   }
@@ -516,7 +633,8 @@ function simulateDouble(scene, solveOptions) {
     model: "double_rod",
     summary: {
       ...baseSummary({ model: "double_rod" }, scene.track, solveOptions),
-      Bn,
+      Bn1_initial: getMagneticFieldAt(x1Start, scene.environment.magnetic_profile).Bn,
+      Bn2_initial: getMagneticFieldAt(x2Start, scene.environment.magnetic_profile).Bn,
       total_resistance: totalR,
       split_x: splitX,
       final_state: { t, x1, x2, v1, v2, a1, a2, I, E, Q_total, stage, F_friction1: friction1, F_friction2: friction2 },
@@ -526,6 +644,8 @@ function simulateDouble(scene, solveOptions) {
         max_speed_rod2: Math.max(...history.v2.map(value => Math.abs(value)), 0),
         max_abs_friction_rod1: Math.max(...history.F_friction1.map(value => Math.abs(value)), 0),
         max_abs_friction_rod2: Math.max(...history.F_friction2.map(value => Math.abs(value)), 0),
+        max_abs_Bn1: Math.max(...history.Bn1.map(value => Math.abs(value)), 0),
+        max_abs_Bn2: Math.max(...history.Bn2.map(value => Math.abs(value)), 0),
         min_distance: Math.min(...history.distance, x2 - x1)
       }
     },
@@ -782,9 +902,20 @@ function describeMovingRodSchemaTool() {
     scene_schema: {
       model: '"single_rod" | "double_rod"',
       environment: {
-        B: "number, magnetic field magnitude in tesla",
-        phi_deg: "number, angle relative to track-plane normal",
+        B: "number, fallback magnetic field magnitude in tesla",
+        phi_deg: "number, fallback angle relative to track-plane normal",
         g: "number optional, defaults to 9.8"
+      },
+      magnetic_field_profile: {
+        field_profile_start: "number optional, magnetic profile x-start",
+        field_segment_length: "number optional fallback magnetic segment length",
+        field_segments: [
+          {
+            B: "number, magnetic field magnitude in tesla for this segment",
+            phi_deg: "number optional, angle relative to track-plane normal for this segment",
+            length: "number optional, overrides fallback field_segment_length"
+          }
+        ]
       },
       track: {
         profile_start: "number optional, usually omit and let solver choose for double-rod runs",
@@ -832,7 +963,15 @@ function describeMovingRodSchemaTool() {
       single_rod: {
         scene: {
           model: "single_rod",
-          environment: { B: 1.0, phi_deg: 0 },
+          environment: {
+            B: 1.0,
+            phi_deg: 0,
+            field_segments: [
+              { B: 1.0, phi_deg: 0, length: 1.5 },
+              { B: 0.6, phi_deg: 0, length: 1.5 },
+              { B: 1.4, phi_deg: 15, length: 1.5 }
+            ]
+          },
           track: {
             segments: [
               { angle_deg: 0, length: 1.5 },
@@ -850,7 +989,15 @@ function describeMovingRodSchemaTool() {
       double_rod: {
         scene: {
           model: "double_rod",
-          environment: { B: 1.2, phi_deg: 10 },
+          environment: {
+            B: 1.2,
+            phi_deg: 10,
+            field_segments: [
+              { B: 1.2, phi_deg: 10, length: 1.2 },
+              { B: 2.0, phi_deg: 0, length: 1.2 },
+              { B: 0.8, phi_deg: 20, length: 1.2 }
+            ]
+          },
           track: {
             segments: [
               { angle_deg: 5, length: 1.2 },
@@ -870,8 +1017,9 @@ function describeMovingRodSchemaTool() {
     },
     notes: [
       "This MCP focuses on the segmented inclined-track rod problems currently implemented in 1.html and 2.html.",
-      "Single-rod dynamics use Bn = B cos(phi), I = (Bn L v - U) / (R + r), and add kinetic friction f_k = mu_k N opposite the current motion or driving tendency.",
-      "Double-rod dynamics keep the current two-stage logic: activeL1 switches from L1 to L2 after rod1 crosses split_x.",
+      "Magnetic field can be configured globally or by field_segments; each rod samples its local segment field Bn(x) = B(x) cos(phi(x)).",
+      "Single-rod dynamics use I = (Bn(x) L v - U) / (R + r), and add kinetic friction f_k = mu_k N opposite the current motion or driving tendency.",
+      "Double-rod dynamics keep the current two-stage logic: activeL1 switches from L1 to L2 after rod1 crosses split_x, while each rod uses its own local magnetic segment.",
       "Past the last segment, the solver continues with the final segment angle."
     ]
   };
@@ -880,9 +1028,12 @@ function describeMovingRodSchemaTool() {
 module.exports = {
   artifactPath,
   describeMovingRodSchemaTool,
+  getMagneticFieldAt,
+  getMagneticSegmentIndex,
   getTrackAngleAt,
   getTrackElevationAt,
   getTrackSegmentIndex,
+  normalizeMagneticProfile,
   measureMovingRodTool,
   normalizeTrack,
   simulateMovingRodTool
